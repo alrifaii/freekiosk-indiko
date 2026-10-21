@@ -1,10 +1,12 @@
-name: Build provisioning APK
+name: Build provisioning APK and QR kit
 
 # Builds the -Pcloudprovi variant (no accessibility service, so Play Protect lets the
-# setup wizard install it) that a provisioning QR downloads.
+# setup wizard install it) and packs it with tools/provisioning-kit into a ZIP that IT
+# staff unpack and start with Start.bat.
 #
-# Run it by hand from the Actions tab, or push a tag such as v2.0.0-beta.6-qr1 to also
-# publish the APK as a release. The release link is the stable download URL for the QR.
+# Run it by hand from the Actions tab (result under "Artifacts"), or push a tag such as
+# v2.0.0-beta.6-qr1 to also publish APK and ZIP as a release. The release link of the APK
+# is a stable download URL for the QR code.
 #
 # Signing: set the repository secrets KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS and
 # KEY_PASSWORD. Without them the APK is signed with the public debug key from the repo,
@@ -20,6 +22,46 @@ permissions:
   contents: write
 
 jobs:
+  test-kit-windows:
+    # The kit's server runs on school laptops with Windows PowerShell 5.1 and no
+    # installs, so it is tested there and not only on Linux.
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+        working-directory: tools/provisioning-kit
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start server.ps1 with a dummy APK
+        run: |
+          [System.IO.File]::WriteAllBytes("$PWD\dummy.apk", [byte[]](1..200))
+          Start-Process powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','server.ps1','-NoBrowser','-Port','18080' -RedirectStandardOutput server.log -RedirectStandardError server.err
+          Start-Sleep -Seconds 5
+          Get-Content server.log, server.err -ErrorAction SilentlyContinue
+
+      - name: Check every route
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $info = Invoke-RestMethod http://localhost:18080/api/info
+          if ($info.apkName -ne 'dummy.apk' -or $info.apkSize -ne 200) { throw "api/info wrong: $($info | ConvertTo-Json)" }
+          $apk = Invoke-WebRequest http://localhost:18080/freekiosk.apk -UseBasicParsing
+          if ($apk.RawContentLength -ne 200) { throw "APK length $($apk.RawContentLength)" }
+          $page = Invoke-WebRequest http://localhost:18080/ -UseBasicParsing
+          if ($page.Content -notmatch 'FreeKiosk QR-Kit') { throw 'index.html not served' }
+          foreach ($f in 'qrcode.js', 'provisioning.js') {
+            $r = Invoke-WebRequest "http://localhost:18080/$f" -UseBasicParsing
+            if ($r.StatusCode -ne 200) { throw "$f not served" }
+          }
+          try { Invoke-WebRequest 'http://localhost:18080/nope.txt' -UseBasicParsing | Out-Null; throw 'missing file did not 404' } catch { if ($_.Exception.Response.StatusCode.value__ -ne 404) { throw } }
+          Write-Host 'All routes OK'
+          Write-Host ($info | ConvertTo-Json -Depth 4)
+
+      - name: Server log
+        if: always()
+        run: Get-Content server.log, server.err -ErrorAction SilentlyContinue
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -65,24 +107,42 @@ jobs:
         working-directory: android
         run: ./gradlew assembleRelease -Pcloudprovi --no-daemon
 
-      - name: Name the APK
+      - name: Pack APK and QR kit
         run: |
-          NAME="FreeKiosk-${GITHUB_REF_NAME//\//-}-provisioning.apk"
-          cp android/app/build/outputs/apk/release/app-release.apk "$NAME"
-          echo "APK_NAME=$NAME" >> "$GITHUB_ENV"
-          sha256sum "$NAME"
+          REF="${GITHUB_REF_NAME//\//-}"
+          APK_NAME="FreeKiosk-${REF}-provisioning.apk"
+          KIT_DIR="FreeKiosk-QR-Kit-${REF}"
+          cp android/app/build/outputs/apk/release/app-release.apk "$APK_NAME"
+          sha256sum "$APK_NAME"
+
+          RELEASE_URL=""
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            RELEASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${APK_NAME}"
+          fi
+
+          cp -r tools/provisioning-kit "$KIT_DIR"
+          cp "$APK_NAME" "$KIT_DIR/"
+          printf '{"version":"%s","releaseUrl":"%s"}\n' "$GITHUB_REF_NAME" "$RELEASE_URL" > "$KIT_DIR/config.json"
+          zip -r -q "${KIT_DIR}.zip" "$KIT_DIR"
+
+          echo "APK_NAME=$APK_NAME" >> "$GITHUB_ENV"
+          echo "KIT_ZIP=${KIT_DIR}.zip" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APK_NAME }}
-          path: ${{ env.APK_NAME }}
+          name: FreeKiosk-QR-Kit
+          path: |
+            ${{ env.KIT_ZIP }}
+            ${{ env.APK_NAME }}
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.APK_NAME }}
+          files: |
+            ${{ env.KIT_ZIP }}
+            ${{ env.APK_NAME }}
           prerelease: true
           body: |
-            Provisioning build (-Pcloudprovi) with kiosk settings from the setup-wizard QR.
-            Use this file's download link in the QR generator.
+            **FreeKiosk-QR-Kit** (ZIP): entpacken, `Start.bat` doppelklicken, QR-Codes erzeugen.
+            Die APK ist die Provisioning-Variante (-Pcloudprovi) mit Einstellungen aus dem QR-Code.

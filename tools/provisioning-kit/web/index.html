@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreeKiosk QR-Kit</title>
+<style>
+/* Layout: Formular links in vier Abschnitten, QR-Karte rechts mitlaufend; schmal gestapelt. Offline, nur Systemschriften. */
+:root {
+  --bg: #f2f5f6;
+  --surface: #ffffff;
+  --ink: #132530;
+  --muted: #586a74;
+  --line: #d5dde1;
+  --accent: #1d5d97;
+  --accent-ink: #ffffff;
+  --accent-soft: #e4eef7;
+  --go: #4f7a0e;
+  --go-bg: #edf4df;
+  --warn: #8f5400;
+  --warn-bg: #fcf1dd;
+  --bad: #ad2a1f;
+  --bad-bg: #fbe8e5;
+  --font-display: "Bahnschrift", "DIN Alternate", "Roboto Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+  --radius: 10px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e171c; --surface: #15222a; --ink: #e2eaee; --muted: #93a5af; --line: #2a3b45;
+    --accent: #6ea9de; --accent-ink: #0e171c; --accent-soft: #1a2f40;
+    --go: #a8d25c; --go-bg: #1c2913; --warn: #efb34d; --warn-bg: #2a2113; --bad: #ff8d82; --bad-bg: #2c1614;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1140px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 56px; display: grid; gap: 24px; }
+header { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; }
+.head-text { display: grid; gap: 6px; max-width: 70ch; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(30px, 4.5vw, 42px); line-height: 1.05; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--font-display); font-weight: 600; font-size: 20px; line-height: 1.15; margin: 0; }
+p { margin: 0; }
+.lead { color: var(--muted); }
+code { font-family: var(--font-mono); font-size: .9em; }
+.status { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 24px; align-items: start; }
+.grid.is-large { grid-template-columns: minmax(0, 1fr); }
+.grid.is-large .qr-card { order: -1; position: static; }
+.form { display: grid; gap: 16px; min-width: 0; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 18px 20px; display: grid; gap: 14px; min-width: 0; }
+.panel-head { display: flex; align-items: baseline; gap: 10px; }
+.step { font-family: var(--font-mono); font-size: 12px; color: var(--accent); }
+.field { display: grid; gap: 6px; min-width: 0; align-content: start; }
+.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+label.lbl { font-weight: 600; font-size: 14px; }
+.hint { font-size: 13px; color: var(--muted); }
+input[type="text"], input[type="url"], input[type="password"], select, textarea {
+  width: 100%; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px;
+}
+textarea { font-family: var(--font-mono); font-size: 13px; resize: vertical; margin-top: 8px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, .drop:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
+.check input { margin-top: 4px; accent-color: var(--accent); }
+.choice { display: grid; gap: 10px; }
+.choice > label { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; border: 1px solid var(--line); border-radius: 8px; padding: 12px; cursor: pointer; }
+.choice > label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.choice > label > input { margin-top: 4px; accent-color: var(--accent); }
+.choice .inner { display: grid; gap: 8px; min-width: 0; }
+fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 14px; }
+fieldset.plain:disabled { opacity: .45; }
+.sub { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 12px; min-width: 0; }
+.drop { display: grid; gap: 4px; border: 1.5px dashed var(--line); border-radius: 8px; padding: 14px; cursor: pointer; background: var(--bg); position: relative; }
+.drop.is-over { border-color: var(--accent); background: var(--accent-soft); }
+.drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; font-size: 13px; margin: 0; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
+.seg { display: flex; flex-wrap: wrap; gap: 8px; }
+.seg label { display: flex; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; font-size: 14px; cursor: pointer; }
+.seg label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.seg input { accent-color: var(--accent); }
+.qr-card { position: sticky; top: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; display: grid; gap: 14px; min-width: 0; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; border-radius: 999px; padding: 3px 10px; }
+.pill.ok { color: var(--go); background: var(--go-bg); }
+.pill.demo { color: var(--warn); background: var(--warn-bg); }
+.pill.bad { color: var(--bad); background: var(--bad-bg); }
+.pill.info { color: var(--muted); background: var(--surface); border: 1px solid var(--line); }
+.qr-frame { background: #ffffff; border-radius: 8px; padding: 8px; display: grid; place-items: center; position: relative; }
+.qr-frame canvas { width: 100%; max-width: 350px; height: auto; image-rendering: pixelated; display: block; }
+.is-large .qr-frame canvas { max-width: 620px; }
+.qr-frame.demo canvas { opacity: .25; }
+.demo-mark { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--font-display); font-weight: 600; font-size: 26px; color: #8f5400; text-align: center; line-height: 1.15; padding: 16px; }
+.qr-label { text-align: center; font-family: var(--font-display); font-size: 18px; }
+.msgs { display: grid; gap: 6px; font-size: 13px; padding: 0; margin: 0; list-style: none; }
+.msgs li { padding: 7px 10px; border-radius: 6px; }
+.msgs .bad { color: var(--bad); background: var(--bad-bg); }
+.msgs .warn { color: var(--warn); background: var(--warn-bg); }
+.msgs .info { color: var(--muted); background: var(--bg); }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+button { font: inherit; font-size: 14px; font-weight: 600; border-radius: 8px; padding: 8px 13px; cursor: pointer; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+details summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+pre { margin: 8px 0 0; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre; }
+.meta { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.below { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+ol.steps { margin: 0; padding-left: 22px; display: grid; gap: 8px; }
+ol.steps li::marker { font-family: var(--font-mono); color: var(--accent); font-size: 13px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 8px 8px 0; border-top: 1px solid var(--line); }
+th { font-weight: 600; width: 40%; }
+.tbl { overflow-x: auto; }
+.print-only { display: none; }
+@media (max-width: 880px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .qr-card { position: static; }
+}
+@media print {
+  body { background: #fff; color: #000; }
+  .wrap > header, .form, .below, .qr-card .btns, .qr-card details, .qr-card .msgs, .qr-card .meta, .qr-card .panel-head { display: none !important; }
+  .grid { display: block; }
+  .qr-card { border: 0; position: static; }
+  .qr-frame canvas { max-width: 140mm; }
+  .print-only { display: block; font-size: 12pt; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="head-text">
+      <span class="eyebrow">inDiKo · FH Technikum Wien · Android-Tablets</span>
+      <h1>FreeKiosk QR-Kit</h1>
+      <p class="lead">Erzeugt den QR-Code, mit dem sich ein frisch zurückgesetztes Android-Tablet selbst einrichtet. Das Tablet lädt FreeKiosk, macht es zum Gerätebesitzer und startet danach AsTeRICS Grid im gesperrten Vollbild.</p>
+    </div>
+    <div class="status" id="status"><span class="pill info">Starte …</span></div>
+  </header>
+
+  <div class="grid" id="grid">
+    <form class="form" id="form" autocomplete="off">
+      <section class="panel" aria-labelledby="h-src">
+        <div class="panel-head"><span class="step">1</span><h2 id="h-src">Woher holt sich das Tablet die App?</h2></div>
+        <div class="choice" role="radiogroup" aria-labelledby="h-src">
+          <label for="src-laptop">
+            <input type="radio" name="src" id="src-laptop" value="laptop" checked>
+            <span class="inner">
+              <strong>Von diesem Laptop</strong>
+              <span class="hint">Laptop und Tablet müssen im selben WLAN sein. Viele Schul-WLANs blockieren Verbindungen zwischen Geräten. Dann einen Handy-Hotspot oder den Weg über das Internet nehmen.</span>
+              <select id="ip" aria-label="Adresse dieses Laptops"></select>
+            </span>
+          </label>
+          <label for="src-net">
+            <input type="radio" name="src" id="src-net" value="net">
+            <span class="inner">
+              <strong>Aus dem Internet</strong>
+              <span class="hint">Download-Link der identischen APK, zum Beispiel aus dem GitHub-Release, aus dem dieses Kit stammt.</span>
+              <input type="url" id="net-url" value="" spellcheck="false" aria-label="Download-Link der APK">
+            </span>
+          </label>
+        </div>
+        <dl class="kv" id="apk-info" hidden>
+          <dt>App</dt><dd id="i-file"></dd>
+          <dt>Signatur</dt><dd id="i-scheme"></dd>
+          <dt>Prüfsumme</dt><dd id="i-sig"></dd>
+          <dt>Link im QR</dt><dd id="i-url"></dd>
+        </dl>
+        <details id="adv">
+          <summary>Erweitert</summary>
+          <div class="field" style="margin-top: 10px;">
+            <span class="lbl" id="l-cs">Prüfsumme im QR</span>
+            <div class="seg" role="radiogroup" aria-labelledby="l-cs">
+              <label><input type="radio" name="cs" id="cs-sig" value="sig" checked> Signatur-Hash</label>
+              <label><input type="radio" name="cs" id="cs-pkg" value="pkg"> Datei-Hash</label>
+            </div>
+            <span class="hint">Der Signatur-Hash bleibt bei neuen Versionen gleich, solange sie mit demselben Schlüssel signiert sind.</span>
+          </div>
+          <label class="drop" id="drop" for="apk" style="margin-top: 12px;">
+            <strong id="drop-title">Andere APK auswählen</strong>
+            <span class="hint" id="drop-hint">Nur nötig, wenn die Seite ohne Start.bat geöffnet wurde.</span>
+            <input type="file" id="apk" accept=".apk,application/vnd.android.package-archive">
+          </label>
+        </details>
+      </section>
+
+      <section class="panel" aria-labelledby="h-wlan">
+        <div class="panel-head"><span class="step">2</span><h2 id="h-wlan">WLAN für die Einrichtung</h2></div>
+        <div class="row">
+          <div class="field">
+            <label class="lbl" for="ssid">Netzwerkname (SSID)</label>
+            <input type="text" id="ssid" value="" spellcheck="false">
+          </div>
+          <div class="field">
+            <label class="lbl" for="sec">Sicherheit</label>
+            <select id="sec">
+              <option value="WPA" selected>WPA2/WPA3 mit Passwort</option>
+              <option value="WEP">WEP</option>
+              <option value="NONE">Offen</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label class="lbl" for="pw">Passwort</label>
+          <input type="password" id="pw" value="" spellcheck="false">
+          <span class="hint">Wird nicht gespeichert, steht aber im Klartext im QR. Ausgedruckte QR-Codes daher wie Passwörter behandeln.</span>
+        </div>
+        <label class="check"><input type="checkbox" id="hidden-net"> Verstecktes Netzwerk</label>
+        <p class="hint">WLANs mit Benutzername und Passwort (802.1X, eduroam) funktionieren hier nicht. Für die Einrichtung reicht ein Handy-Hotspot; das Tablet bleibt danach mit diesem WLAN verbunden.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="h-opt">
+        <div class="panel-head"><span class="step">3</span><h2 id="h-opt">Einrichtung</h2></div>
+        <label class="check"><input type="checkbox" id="keep-apps" checked> <span>System-Apps aktiviert lassen <span class="hint">(ausschalten deaktiviert Samsung-Zusatz-Apps wie „Entdecke tolle Apps“; danach prüfen, ob die Sprachausgabe noch geht)</span></span></label>
+        <label class="check"><input type="checkbox" id="skip-edu" checked> Erklärseiten im Setup überspringen</label>
+        <div class="row">
+          <div class="field">
+            <label class="lbl" for="locale">Sprache</label>
+            <input type="text" id="locale" value="de_AT" spellcheck="false">
+          </div>
+          <div class="field">
+            <label class="lbl" for="tz">Zeitzone</label>
+            <input type="text" id="tz" value="Europe/Vienna" spellcheck="false">
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="h-fk">
+        <div class="panel-head"><span class="step">4</span><h2 id="h-fk">FreeKiosk-Einstellungen</h2></div>
+        <label class="check"><input type="checkbox" id="fk-on" checked> <span>Einstellungen im QR mitschicken</span></label>
+        <fieldset class="plain" id="fk-body">
+          <div class="row">
+            <div class="field">
+              <label class="lbl" for="fk-pin">PIN für die Einstellungen</label>
+              <input type="text" id="fk-pin" inputmode="numeric" maxlength="6" value="" spellcheck="false">
+              <span class="hint">4 bis 6 Ziffern. Damit kommt man am Tablet in die FreeKiosk-Einstellungen (fünfmal unten rechts tippen).</span>
+            </div>
+            <div class="field">
+              <label class="lbl" for="fk-url">Start-URL</label>
+              <input type="url" id="fk-url" value="https://grid.asterics.eu" spellcheck="false">
+            </div>
+          </div>
+          <label class="check"><input type="checkbox" id="fk-screen" checked> Bildschirm nie ausschalten</label>
+          <label class="check"><input type="checkbox" id="fk-statusbar" checked> Akku und Uhrzeit am oberen Rand zeigen</label>
+          <label class="check"><input type="checkbox" id="fk-reset"> <span>Werksreset in den Android-Einstellungen sperren <span class="hint">(danach nur noch über FreeKiosk oder die Recovery)</span></span></label>
+          <div class="sub">
+            <label class="check"><input type="checkbox" id="fk-mqtt"> <span>Status per MQTT an einen Broker senden</span></label>
+            <fieldset class="plain" id="mqtt-fields">
+              <div class="row">
+                <div class="field">
+                  <label class="lbl" for="mq-broker">Broker (Host oder IP)</label>
+                  <input type="text" id="mq-broker" value="" placeholder="192.168.0.10" spellcheck="false">
+                </div>
+                <div class="field">
+                  <label class="lbl" for="mq-port">Port</label>
+                  <input type="text" id="mq-port" inputmode="numeric" value="1883" spellcheck="false">
+                </div>
+              </div>
+              <div class="row">
+                <div class="field">
+                  <label class="lbl" for="mq-user">Benutzer</label>
+                  <input type="text" id="mq-user" value="" spellcheck="false">
+                </div>
+                <div class="field">
+                  <label class="lbl" for="mq-pass">Passwort</label>
+                  <input type="password" id="mq-pass" value="" spellcheck="false">
+                </div>
+              </div>
+              <div class="row">
+                <div class="field">
+                  <label class="lbl" for="mq-topic">Basis-Topic</label>
+                  <input type="text" id="mq-topic" value="freekiosk" spellcheck="false">
+                </div>
+                <div class="field">
+                  <label class="lbl" for="mq-name">Gerätename</label>
+                  <input type="text" id="mq-name" value="Tablet 1" spellcheck="false">
+                  <span class="hint">Mit „Nächstes Tablet“ zählt die Nummer hoch.</span>
+                </div>
+              </div>
+            </fieldset>
+          </div>
+          <details>
+            <summary>Weitere Einstellungen</summary>
+            <textarea id="fk-extra" rows="4" spellcheck="false" placeholder="screensaver_enabled=false&#10;webview_zoom_level=110"></textarea>
+            <span class="hint">Ein Eintrag pro Zeile als schluessel=wert, mit den Namen aus der ADB-Anleitung von FreeKiosk. Überschreibt die Felder oben.</span>
+          </details>
+        </fieldset>
+      </section>
+    </form>
+
+    <aside class="qr-card" id="card" aria-live="polite">
+      <div class="panel-head" style="justify-content: space-between;">
+        <h2>QR-Code</h2>
+        <span class="pill demo" id="pill">Beispiel</span>
+      </div>
+      <div class="qr-frame demo" id="frame">
+        <canvas id="qr" width="350" height="350" aria-label="Provisionierungs-QR-Code"></canvas>
+        <div class="demo-mark" id="demo-mark">Noch nicht<br>scannen</div>
+      </div>
+      <p class="qr-label" id="qr-label" hidden></p>
+      <ul class="msgs" id="msgs"></ul>
+      <div class="btns">
+        <button type="button" class="primary" id="btn-large">Großansicht</button>
+        <button type="button" id="btn-next" hidden>Nächstes Tablet</button>
+        <button type="button" id="btn-print">Drucken</button>
+        <button type="button" id="btn-copy">JSON kopieren</button>
+      </div>
+      <p class="meta" id="meta"></p>
+      <details>
+        <summary>Inhalt des QR-Codes</summary>
+        <pre id="json"></pre>
+      </details>
+      <div class="print-only" id="print-info"></div>
+    </aside>
+  </div>
+
+  <div class="below">
+    <section class="panel" aria-labelledby="h-steps">
+      <h2 id="h-steps">Am Tablet</h2>
+      <ol class="steps">
+        <li>Tablet laden und über Einstellungen › Allgemeine Verwaltung › Zurücksetzen auf Werkseinstellungen setzen. Kein Konto hinzufügen.</li>
+        <li>Am ersten Willkommen-Bildschirm sechsmal auf eine leere Stelle tippen. Die Kamera öffnet sich.</li>
+        <li>Den QR-Code scannen, am besten in der Großansicht oder ausgedruckt.</li>
+        <li>Die Hinweise von Android, Google und Samsung mit „Weiter“ bestätigen. Diese Seiten verlangt Android bei jedem QR-Enrollment.</li>
+        <li>FreeKiosk startet, übernimmt die Einstellungen, startet einmal neu und zeigt danach die Start-URL.</li>
+      </ol>
+    </section>
+
+    <section class="panel" aria-labelledby="h-err">
+      <h2 id="h-err">Wenn es hakt</h2>
+      <div class="tbl">
+        <table>
+          <tbody>
+            <tr><th>Kamera öffnet sich nicht</th><td>Es wurde nicht am allerersten Bildschirm getippt. Mit „&lt;“ ganz zurück oder neu zurücksetzen.</td></tr>
+            <tr><th>„App blocked to protect your device“</th><td>Google lässt die App nicht als Verwaltungs-App zu. Die Einrichtung per USB (ADB) bleibt möglich.</td></tr>
+            <tr><th>„Couldn't set up device“</th><td>Prüfsumme passt nicht zur geladenen APK. Prüfen, ob der Link auf genau diese Datei zeigt.</td></tr>
+            <tr><th>Download hängt</th><td>Tablet erreicht den Laptop nicht. Im Laptop-Fenster erscheint dann keine Zeile „hat die App geladen“. Firewall-Freigabe prüfen oder Handy-Hotspot nutzen.</td></tr>
+            <tr><th>Einstellungen fehlen</th><td>Die PIN fehlte, oder die APK stammt nicht aus diesem Kit. Beim ersten Start zeigt FreeKiosk kurz an, was übernommen wurde.</td></tr>
+            <tr><th>Reset ist gesperrt</th><td>In FreeKiosk (fünfmal unten rechts, PIN) unter Sicherheit „Device Owner entfernen“ wählen, danach zurücksetzen.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script src="qrcode.js"></script>
+<script src="provisioning.js"></script>
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const STORE = "fkkit.v1";
+  const persistIds = ["src-laptop", "src-net", "ip", "net-url", "cs-sig", "cs-pkg", "ssid", "sec", "hidden-net", "keep-apps", "skip-edu", "locale", "tz",
+    "fk-on", "fk-url", "fk-screen", "fk-statusbar", "fk-reset", "fk-mqtt", "mq-broker", "mq-port", "mq-user", "mq-topic", "mq-name", "fk-extra"];
+  const state = { info: null, sig: null, pkg: null, scheme: 0, apkName: "", apkSize: 0 };
+
+  function load() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORE) || "{}");
+      for (const id of persistIds) {
+        if (!(id in saved)) continue;
+        const el = $(id);
+        if (el.type === "checkbox" || el.type === "radio") el.checked = !!saved[id]; else el.value = saved[id];
+      }
+      return saved;
+    } catch (e) { return {}; }
+  }
+  function save() {
+    try {
+      const out = {};
+      for (const id of persistIds) { const el = $(id); out[id] = (el.type === "checkbox" || el.type === "radio") ? el.checked : el.value; }
+      localStorage.setItem(STORE, JSON.stringify(out));
+    } catch (e) {}
+  }
+
+  function source() { return document.querySelector('input[name="src"]:checked').value; }
+
+  function apkUrl() {
+    if (source() === "laptop") {
+      if (!state.info || !$("ip").value) return "";
+      return `http://${$("ip").value}:${state.info.port}/freekiosk.apk`;
+    }
+    return $("net-url").value.trim();
+  }
+
+  function opts() {
+    return {
+      url: apkUrl(), checksumType: document.querySelector('input[name="cs"]:checked').value,
+      sigChecksum: state.sig, pkgChecksum: state.pkg,
+      ssid: $("ssid").value, password: $("pw").value, security: $("sec").value, hidden: $("hidden-net").checked,
+      keepApps: $("keep-apps").checked, skipEdu: $("skip-edu").checked, locale: $("locale").value, tz: $("tz").value,
+      fk: $("fk-on").checked ? {
+        pin: $("fk-pin").value, url: $("fk-url").value, keepScreenOn: $("fk-screen").checked,
+        statusBar: $("fk-statusbar").checked, blockReset: $("fk-reset").checked,
+        mqtt: $("fk-mqtt").checked, broker: $("mq-broker").value, port: $("mq-port").value,
+        user: $("mq-user").value, pass: $("mq-pass").value, topic: $("mq-topic").value, name: $("mq-name").value,
+        extra: $("fk-extra").value
+      } : null
+    };
+  }
+
+  function drawQR(text) {
+    const canvas = $("qr");
+    qrcode.stringToBytes = qrcode.stringToBytesFuncs["UTF-8"];
+    const qr = qrcode(0, "L");
+    qr.addData(text, "Byte");
+    qr.make();
+    const count = qr.getModuleCount();
+    const quiet = 4;
+    const cell = Math.max(4, Math.floor(1240 / (count + quiet * 2)));
+    const size = (count + quiet * 2) * cell;
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = "#000000";
+    for (let r = 0; r < count; r++) for (let c = 0; c < count; c++) {
+      if (qr.isDark(r, c)) ctx.fillRect((c + quiet) * cell, (r + quiet) * cell, cell, cell);
+    }
+    return count;
+  }
+
+  function setStatus(parts) {
+    const box = $("status");
+    box.textContent = "";
+    for (const [cls, text] of parts) {
+      const s = document.createElement("span"); s.className = "pill " + cls; s.textContent = text; box.appendChild(s);
+    }
+  }
+
+  function render() {
+    $("fk-body").disabled = !$("fk-on").checked;
+    $("mqtt-fields").disabled = !$("fk-mqtt").checked;
+    $("ip").disabled = source() !== "laptop";
+    $("net-url").disabled = source() !== "net";
+    $("btn-next").hidden = !($("fk-on").checked && $("fk-mqtt").checked);
+
+    const res = buildProvisioning(opts());
+    if (source() === "laptop") {
+      res.warnings = res.warnings.filter((w) => !w.startsWith("Link ohne https"));
+      if (!state.info) res.problems.unshift("Die Seite läuft nicht über Start.bat. Bitte Start.bat starten oder „Aus dem Internet“ wählen.");
+    }
+    const text = JSON.stringify(res.json);
+    $("json").textContent = JSON.stringify(res.json, null, 2);
+    $("i-url").textContent = apkUrl() || "noch keiner";
+
+    const msgs = $("msgs");
+    msgs.textContent = "";
+    const add = (cls, t) => { const li = document.createElement("li"); li.className = cls; li.textContent = t; msgs.appendChild(li); };
+    res.problems.forEach((t) => add("bad", t));
+    res.warnings.forEach((t) => add("warn", t));
+    res.infos.filter((t) => !t.startsWith("GitHub leitet")).forEach((t) => add("info", t));
+
+    let modules = 0;
+    try { modules = drawQR(text); } catch (e) { add("bad", "QR-Code konnte nicht erzeugt werden: " + e.message); }
+    const ready = !res.demo && res.problems.length === 0 && modules > 0;
+    const pill = $("pill");
+    pill.className = "pill " + (ready ? "ok" : res.demo ? "demo" : "bad");
+    pill.textContent = ready ? "Bereit zum Scannen" : res.demo ? "Warte auf App" : "Unvollständig";
+    $("frame").classList.toggle("demo", !ready);
+    $("demo-mark").hidden = ready;
+
+    const name = $("fk-on").checked && $("fk-mqtt").checked ? $("mq-name").value.trim() : "";
+    $("qr-label").textContent = name;
+    $("qr-label").hidden = !name;
+    $("meta").textContent = modules ? `${new TextEncoder().encode(text).length} Byte · ${modules}×${modules} Module` : "";
+
+    const pi = $("print-info");
+    pi.textContent = "";
+    const lines = [
+      name ? `Gerät: ${name}` : null,
+      `WLAN: ${$("ssid").value.trim() || "vom Tablet abgefragt"}`,
+      "Tablet zurücksetzen, am Willkommen-Bildschirm sechsmal tippen, QR scannen, Hinweise bestätigen."
+    ].filter(Boolean);
+    for (const l of lines) { const p = document.createElement("p"); p.textContent = l; pi.appendChild(p); }
+    save();
+  }
+
+  function showApk(name, size, r) {
+    state.sig = r.signatureChecksum; state.pkg = r.packageChecksum; state.scheme = r.scheme;
+    state.apkName = name; state.apkSize = size;
+    $("i-file").textContent = `${name} · ${(size / 1048576).toFixed(1)} MB`;
+    $("i-scheme").textContent = r.scheme ? `APK Signature Scheme v${r.scheme}` : "nur v1, bitte Datei-Hash verwenden";
+    $("i-sig").textContent = r.signatureChecksum || r.packageChecksum;
+    $("apk-info").hidden = false;
+    if (!r.signatureChecksum) $("cs-pkg").checked = true;
+  }
+
+  async function handleFile(file) {
+    if (!file) return;
+    $("drop-title").textContent = "Lese " + file.name + " …";
+    try {
+      showApk(file.name, file.size, await apkChecksums(await file.arrayBuffer()));
+      $("drop-title").textContent = "Andere APK auswählen";
+      $("drop-hint").textContent = "Prüfsumme berechnet. Der Link muss auf genau diese Datei zeigen.";
+      if (state.info) $("src-net").checked = true;
+    } catch (e) {
+      $("drop-hint").textContent = e.message;
+    }
+    render();
+  }
+
+  function nextTablet() {
+    const el = $("mq-name");
+    const m = el.value.match(/^(.*?)(\d+)\s*$/);
+    el.value = m ? m[1] + (parseInt(m[2], 10) + 1) : (el.value.trim() || "Tablet") + " 2";
+    render();
+  }
+
+  async function boot() {
+    const saved = load();
+    try {
+      const r = await fetch("/api/info", { cache: "no-store" });
+      if (!r.ok) throw new Error(String(r.status));
+      state.info = await r.json();
+    } catch (e) {
+      state.info = null;
+    }
+
+    const ipSel = $("ip");
+    ipSel.textContent = "";
+    if (state.info) {
+      const ips = Array.isArray(state.info.ips) ? state.info.ips : (state.info.ips ? [state.info.ips] : []);
+      for (const a of ips) {
+        const o = document.createElement("option");
+        o.value = a.address;
+        o.textContent = a.name ? `${a.address}  (${a.name})` : a.address;
+        ipSel.appendChild(o);
+      }
+      if (saved.ip && ips.some((a) => a.address === saved.ip)) ipSel.value = saved.ip;
+      if (!ips.length) {
+        const o = document.createElement("option"); o.value = ""; o.textContent = "Kein Netzwerk gefunden"; ipSel.appendChild(o);
+      }
+      if (state.info.releaseUrl && !$("net-url").value) $("net-url").value = state.info.releaseUrl;
+      setStatus([["info", "Lade App …"]]);
+      render();
+      try {
+        const buf = await (await fetch("/freekiosk.apk", { cache: "no-store" })).arrayBuffer();
+        showApk(state.info.apkName, buf.byteLength, await apkChecksums(buf));
+        setStatus([["ok", "Server läuft"], ["info", state.info.version || state.info.apkName]]);
+      } catch (e) {
+        setStatus([["bad", "App konnte nicht gelesen werden"]]);
+      }
+    } else {
+      const o = document.createElement("option"); o.value = ""; o.textContent = "Nur mit Start.bat verfügbar"; ipSel.appendChild(o);
+      $("src-net").checked = true;
+      $("adv").open = true;
+      setStatus([["demo", "Ohne Start.bat geöffnet"]]);
+    }
+    render();
+  }
+
+  $("apk").addEventListener("change", (e) => handleFile(e.target.files[0]));
+  const drop = $("drop");
+  ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("is-over"); }));
+  ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("is-over"); }));
+  drop.addEventListener("drop", (e) => handleFile(e.dataTransfer.files[0]));
+  $("form").addEventListener("input", render);
+  $("form").addEventListener("change", render);
+  $("form").addEventListener("submit", (e) => e.preventDefault());
+  $("btn-next").addEventListener("click", nextTablet);
+  $("btn-print").addEventListener("click", () => window.print());
+  $("btn-large").addEventListener("click", () => {
+    const on = $("grid").classList.toggle("is-large");
+    $("card").classList.toggle("is-large", on);
+    $("btn-large").textContent = on ? "Normale Ansicht" : "Großansicht";
+    if (on) $("card").scrollIntoView({ block: "start" });
+  });
+  $("btn-copy").addEventListener("click", () => {
+    const text = $("json").textContent;
+    const done = () => { $("btn-copy").textContent = "Kopiert"; setTimeout(() => ($("btn-copy").textContent = "JSON kopieren"), 1600); };
+    const fallback = () => {
+      $("json").parentElement.open = true;
+      const range = document.createRange(); range.selectNodeContents($("json"));
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    };
+    try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
+  });
+  boot();
+})();
+</script>
+</body>
+</html>

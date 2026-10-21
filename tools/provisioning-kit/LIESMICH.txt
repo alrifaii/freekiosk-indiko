@@ -1,0 +1,64 @@
+FreeKiosk QR-Kit
+================
+
+Mit diesem Kit richten Sie Android-Tablets (getestet: Samsung Galaxy Tab A9+) als
+Kommunikationsgeraet fuer AsTeRICS Grid ein. Ein zurueckgesetztes Tablet scannt einen
+QR-Code, laedt FreeKiosk, macht es zum Geraetebesitzer und startet danach die
+eingestellte Webseite im gesperrten Vollbild. Kein Konto, keine Verwaltungssoftware,
+keine Kosten.
+
+Entstanden im Projekt inDiKo an der FH Technikum Wien.
+
+
+Was im Ordner liegt
+-------------------
+  Start.bat        Doppelklick unter Windows. Startet den Server und oeffnet den Browser.
+  start.command    Dasselbe fuer macOS und Linux (braucht Python 3).
+  *.apk            FreeKiosk mit QR-Einstellungen. Nicht umbenennen noetig.
+  web\             Die Oberflaeche.
+  server.ps1       Server fuer Windows (PowerShell, ohne Installation).
+  server.py        Server fuer macOS/Linux und als Ersatz unter Windows.
+
+
+So geht's
+---------
+1. Start.bat doppelklicken. Fragt die Windows-Firewall nach, "Zugriff zulassen"
+   fuer private Netzwerke waehlen. Das schwarze Fenster offen lassen.
+2. Im Browser oeffnet sich das QR-Kit. Dort eintragen
+     - woher das Tablet die App holt (dieser Laptop oder Internet)
+     - das WLAN fuer die Einrichtung
+     - PIN und Start-URL fuer FreeKiosk, auf Wunsch MQTT
+3. "Grossansicht" oder "Drucken".
+4. Am Tablet: auf Werkseinstellungen zuruecksetzen, am ersten Willkommen-Bildschirm
+   sechsmal tippen, QR scannen, Hinweise mit "Weiter" bestaetigen.
+5. Im schwarzen Fenster erscheint "... hat die App geladen". FreeKiosk startet,
+   uebernimmt die Einstellungen, startet einmal neu und zeigt die Start-URL.
+
+Fuer das naechste Tablet "Naechstes Tablet" druecken (zaehlt den Geraetenamen hoch)
+und wieder scannen.
+
+
+Wichtig
+-------
+- Laptop und Tablets muessen im selben WLAN sein, wenn die App vom Laptop kommt.
+  Viele Schul-WLANs blockieren Verbindungen zwischen Geraeten. Dann einen
+  Handy-Hotspot verwenden oder im Kit "Aus dem Internet" waehlen.
+- WLANs mit Benutzername (802.1X, eduroam) gehen im QR nicht.
+- WLAN-Passwort und PIN stehen im Klartext im QR. Ausdrucke wie Passwoerter behandeln.
+- Die Seiten "Geraet ist nicht privat", "Google-Dienste" und die Samsung-Lizenz
+  zeigt Android bei jedem QR-Enrollment. Sie lassen sich nicht abschalten.
+- Ein so eingerichtetes Tablet zuruecksetzen: in FreeKiosk fuenfmal unten rechts
+  tippen, PIN eingeben, unter Sicherheit "Device Owner entfernen", danach normal
+  ueber die Android-Einstellungen zuruecksetzen.
+
+
+Fehlersuche
+-----------
+- Kamera oeffnet sich nicht: Es wurde nicht am allerersten Bildschirm getippt.
+- "App blocked to protect your device": Google laesst die App nicht zu. Einrichtung
+  per USB (ADB) ist weiterhin moeglich, siehe Anleitung von FreeKiosk.
+- "Couldn't set up device": Pruefsumme passt nicht. Im Kit pruefen, ob der Link auf
+  genau die APK aus diesem Ordner zeigt.
+- Download haengt und im Fenster erscheint nichts: Firewall oder WLAN trennt Laptop
+  und Tablet.
+- Start.bat schliesst sich sofort: Fenster-Meldung lesen; meist fehlt die .apk-Datei.
