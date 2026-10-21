@@ -1,0 +1,88 @@
+name: Build provisioning APK
+
+# Builds the -Pcloudprovi variant (no accessibility service, so Play Protect lets the
+# setup wizard install it) that a provisioning QR downloads.
+#
+# Run it by hand from the Actions tab, or push a tag such as v2.0.0-beta.6-qr1 to also
+# publish the APK as a release. The release link is the stable download URL for the QR.
+#
+# Signing: set the repository secrets KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS and
+# KEY_PASSWORD. Without them the APK is signed with the public debug key from the repo,
+# which is fine for a first test but must not be used on real devices: anyone holding
+# that key could push an "update" of FreeKiosk to them.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*-qr*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install JS dependencies (applies patches/)
+        run: npm ci
+
+      - name: Gradle properties
+        run: cp android/gradle.properties.template android/gradle.properties
+
+      - name: Release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::warning::No KEYSTORE_BASE64 secret: signed with the public debug key. Test devices only."
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/provisioning-release.keystore
+          {
+            echo "FREEKIOSK_UPLOAD_STORE_FILE=provisioning-release.keystore"
+            echo "FREEKIOSK_UPLOAD_STORE_PASSWORD=$KEYSTORE_PASSWORD"
+            echo "FREEKIOSK_UPLOAD_KEY_ALIAS=$KEY_ALIAS"
+            echo "FREEKIOSK_UPLOAD_KEY_PASSWORD=$KEY_PASSWORD"
+          } >> android/gradle.properties
+
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew assembleRelease -Pcloudprovi --no-daemon
+
+      - name: Name the APK
+        run: |
+          NAME="FreeKiosk-${GITHUB_REF_NAME//\//-}-provisioning.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk "$NAME"
+          echo "APK_NAME=$NAME" >> "$GITHUB_ENV"
+          sha256sum "$NAME"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK_NAME }}
+          path: ${{ env.APK_NAME }}
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.APK_NAME }}
+          prerelease: true
+          body: |
+            Provisioning build (-Pcloudprovi) with kiosk settings from the setup-wizard QR.
+            Use this file's download link in the QR generator.

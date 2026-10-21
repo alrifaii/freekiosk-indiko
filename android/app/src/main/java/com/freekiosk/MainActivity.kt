@@ -279,6 +279,12 @@ class MainActivity : ReactActivity() {
     // Register volume change receiver to track volume changes
     registerVolumeChangeReceiver()
 
+    // Settings that arrived with a setup-wizard QR are replayed once through the
+    // ADB config path below - if applied, app will restart
+    if (applyProvisioningConfig()) {
+      return
+    }
+
     // Handle ADB configuration - if config applied, app will restart
     if (handleAdbConfig(intent)) {
       return  // Exit - app restarting with new config
@@ -1609,6 +1615,30 @@ class MainActivity : ReactActivity() {
    * 
    * @return true if config was applied and app will restart, false otherwise
    */
+  /**
+   * Replay the kiosk settings a provisioning QR carried (stored by
+   * DeviceAdminReceiver.persistProvisioningConfig) through handleAdbConfig, as if
+   * they had been passed with `adb shell am start ... --es key value`. Going
+   * through the same path keeps one set of rules: the PIN is required on a virgin
+   * device, unknown keys are reported, and the app restarts with the new settings.
+   *
+   * The store is cleared before the replay, so a config that is rejected (no PIN,
+   * bad JSON) shows its toast once and is not retried on every launch.
+   */
+  private fun applyProvisioningConfig(): Boolean {
+    val prefs = getSharedPreferences(DeviceAdminReceiver.PROVISIONING_CONFIG_PREFS, Context.MODE_PRIVATE)
+    val entries = prefs.all
+    if (entries.isEmpty()) return false
+    prefs.edit().clear().commit()
+
+    val replay = Intent(this, MainActivity::class.java)
+    for ((key, value) in entries) {
+      if (value != null) replay.putExtra(key, value.toString())
+    }
+    android.util.Log.i("FreeKiosk-QR", "Applying ${entries.size} setting(s) from the provisioning QR")
+    return handleAdbConfig(replay)
+  }
+
   private fun handleAdbConfig(intent: Intent?): Boolean {
     if (intent == null) return false
     

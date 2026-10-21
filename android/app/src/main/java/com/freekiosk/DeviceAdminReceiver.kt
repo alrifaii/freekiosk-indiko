@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.BaseBundle
 import android.os.Bundle
 import android.os.PersistableBundle
 import android.util.Log
@@ -36,6 +37,52 @@ class DeviceAdminReceiver : android.app.admin.DeviceAdminReceiver() {
         const val KEY_TOKEN = "enroll_token"
         const val KEY_CLOUD_URL = "cloud_url"
         const val KEY_ORG_ID = "org_id"
+
+        // Kiosk settings carried by a setup-wizard QR; replayed by
+        // MainActivity.applyProvisioningConfig() on first launch.
+        const val PROVISIONING_CONFIG_PREFS = "FreeKioskProvisioningConfig"
+        private val CLOUD_KEYS = setOf(KEY_TOKEN, KEY_CLOUD_URL, KEY_ORG_ID)
+        private val SENSITIVE_KEYS = setOf(
+            "pin", "rest_api_key", "mqtt_password", "mqtt_username", "cloud_token"
+        )
+
+        /**
+         * Persist the kiosk settings a provisioning QR carries in its admin extras
+         * bundle, under the same key names the ADB config intent uses (url, pin,
+         * mqtt_broker_url, keep_screen_on, ...). MainActivity replays them once
+         * through handleAdbConfig, so a QR-provisioned tablet comes up configured
+         * with the same PIN rules and validation as an ADB setup, without a computer.
+         *
+         * Values are stored as strings whatever type the QR used: the ADB path
+         * stringifies every value anyway. Nested bundles are skipped, and the cloud
+         * enrollment keys stay with persistPendingEnrollment. Returns the number of
+         * settings stored.
+         */
+        @Suppress("DEPRECATION")
+        fun persistProvisioningConfig(context: Context, intent: Intent): Int {
+            val raw = intent.extras?.get(
+                DevicePolicyManager.EXTRA_PROVISIONING_ADMIN_EXTRAS_BUNDLE
+            ) as? BaseBundle ?: return 0
+
+            val settings = LinkedHashMap<String, String>()
+            for (key in raw.keySet()) {
+                if (key in CLOUD_KEYS) continue
+                val value = raw.get(key) ?: continue
+                if (value is BaseBundle) continue
+                settings[key] = value.toString()
+            }
+            if (settings.isEmpty()) return 0
+
+            val editor = context.getSharedPreferences(
+                PROVISIONING_CONFIG_PREFS, Context.MODE_PRIVATE
+            ).edit().clear()
+            for ((key, value) in settings) editor.putString(key, value)
+            editor.commit()
+
+            val shown = settings.keys.joinToString(", ") { if (it in SENSITIVE_KEYS) "$it=***" else it }
+            Log.i(TAG, "Stored ${settings.size} provisioning setting(s) for first launch: $shown")
+            return settings.size
+        }
 
         /**
          * Persist { enroll_token, cloud_url, org_id } from a provisioning intent so
@@ -127,6 +174,11 @@ class DeviceAdminReceiver : android.app.admin.DeviceAdminReceiver() {
 
     override fun onProfileProvisioningComplete(context: Context, intent: Intent) {
         super.onProfileProvisioningComplete(context, intent)
+        try {
+            persistProvisioningConfig(context, intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not store the provisioning settings: ${e.message}", e)
+        }
         persistPendingEnrollment(context, intent)
         // Older Android provisioning path (< API 31). Pin the launcher now so the
         // picker never appears when the device reaches home.

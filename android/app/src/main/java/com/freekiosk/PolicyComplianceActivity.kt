@@ -29,6 +29,13 @@ class PolicyComplianceActivity : Activity() {
         // Confirm to the setup wizard before anything that could fail.
         setResult(RESULT_OK)
 
+        // Kiosk settings from the QR (url, pin, mqtt_*, ...), applied on first launch.
+        try {
+            DeviceAdminReceiver.persistProvisioningConfig(this, intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not store the provisioning settings: ${e.message}", e)
+        }
+
         try {
             DeviceAdminReceiver.persistPendingEnrollment(this, intent)
         } catch (e: Exception) {
