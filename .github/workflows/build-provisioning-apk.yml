@@ -34,29 +34,49 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Start server.ps1 with a dummy APK
-        run: |
-          [System.IO.File]::WriteAllBytes("$PWD\dummy.apk", [byte[]](1..200))
-          Start-Process powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','server.ps1','-NoBrowser','-Port','18080' -RedirectStandardOutput server.log -RedirectStandardError server.err
-          Start-Sleep -Seconds 5
-          Get-Content server.log, server.err -ErrorAction SilentlyContinue
-
-      - name: Check every route
+      - name: Start server.ps1 and check every route
+        # Start and checks share one step, so a failure can only mean the server.
         run: |
           $ErrorActionPreference = 'Stop'
-          $info = Invoke-RestMethod http://localhost:18080/api/info
-          if ($info.apkName -ne 'dummy.apk' -or $info.apkSize -ne 200) { throw "api/info wrong: $($info | ConvertTo-Json)" }
-          $apk = Invoke-WebRequest http://localhost:18080/freekiosk.apk -UseBasicParsing
-          if ($apk.RawContentLength -ne 200) { throw "APK length $($apk.RawContentLength)" }
-          $page = Invoke-WebRequest http://localhost:18080/ -UseBasicParsing
-          if ($page.Content -notmatch 'FreeKiosk QR-Kit') { throw 'index.html not served' }
-          foreach ($f in 'qrcode.js', 'provisioning.js') {
-            $r = Invoke-WebRequest "http://localhost:18080/$f" -UseBasicParsing
-            if ($r.StatusCode -ne 200) { throw "$f not served" }
+          [System.IO.File]::WriteAllBytes("$PWD\dummy.apk", [byte[]](1..200))
+          $proc = Start-Process powershell -PassThru -WorkingDirectory $PWD `
+            -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',"$PWD\server.ps1",'-NoBrowser','-Port','18080' `
+            -RedirectStandardOutput "$PWD\server.log" -RedirectStandardError "$PWD\server.err"
+
+          $up = $false
+          for ($i = 0; $i -lt 40 -and -not $up; $i++) {
+            Start-Sleep -Milliseconds 500
+            if ($proc.HasExited) { break }
+            try { $c = New-Object System.Net.Sockets.TcpClient; $c.Connect('127.0.0.1', 18080); $c.Close(); $up = $true } catch { }
           }
-          try { Invoke-WebRequest 'http://localhost:18080/nope.txt' -UseBasicParsing | Out-Null; throw 'missing file did not 404' } catch { if ($_.Exception.Response.StatusCode.value__ -ne 404) { throw } }
-          Write-Host 'All routes OK'
+          Get-Content "$PWD\server.log", "$PWD\server.err" -ErrorAction SilentlyContinue
+          if (-not $up) { throw "Server not reachable on 127.0.0.1:18080 (process exited: $($proc.HasExited))" }
+
+          function Test-Kit([string]$base) {
+            $info = Invoke-RestMethod "$base/api/info"
+            if ($info.apkName -ne 'dummy.apk' -or $info.apkSize -ne 200) { throw "$base api/info wrong: $($info | ConvertTo-Json)" }
+            $apk = Invoke-WebRequest "$base/freekiosk.apk" -UseBasicParsing
+            if ($apk.RawContentLength -ne 200) { throw "$base APK length $($apk.RawContentLength)" }
+            $page = Invoke-WebRequest "$base/" -UseBasicParsing
+            if ($page.Content -notmatch 'FreeKiosk QR-Kit') { throw "$base index.html not served" }
+            foreach ($f in 'qrcode.js', 'provisioning.js') {
+              $r = Invoke-WebRequest "$base/$f" -UseBasicParsing
+              if ($r.StatusCode -ne 200) { throw "$base $f not served" }
+            }
+            $missing = $null
+            try { Invoke-WebRequest "$base/nope.txt" -UseBasicParsing | Out-Null } catch { $missing = $_.Exception.Response.StatusCode.value__ }
+            if ($missing -ne 404) { throw "$base missing file gave $missing instead of 404" }
+            Write-Host "OK  $base"
+            return $info
+          }
+
+          $info = Test-Kit 'http://127.0.0.1:18080'
+          Test-Kit 'http://localhost:18080' | Out-Null
+          # The address a tablet would use
+          $lan = @($info.ips | Where-Object { $_.address })[0].address
+          if ($lan) { Test-Kit "http://${lan}:18080" | Out-Null }
           Write-Host ($info | ConvertTo-Json -Depth 4)
+          Stop-Process -Id $proc.Id -Force
 
       - name: Server log
         if: always()

@@ -47,13 +47,26 @@ function Get-LanAddresses {
     return ,@($result | Sort-Object @{ Expression = { -not $_.wifi } }, address)
 }
 
+# Lauscht auf IPv4 und IPv6 zugleich. Windows loest "localhost" oft zuerst als ::1 auf;
+# ein reiner IPv4-Server waere unter localhost dann nicht erreichbar.
+function New-KitListener([int]$port) {
+    try {
+        $l = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::IPv6Any, $port)
+        $l.Server.DualMode = $true
+        $l.Start()
+        return $l
+    } catch {
+        $l = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, $port)
+        $l.Start()
+        return $l
+    }
+}
+
 # Freien Port suchen
 $listener = $null
 for ($p = $Port; $p -lt ($Port + 20); $p++) {
     try {
-        $candidate = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, $p)
-        $candidate.Start()
-        $listener = $candidate
+        $listener = New-KitListener $p
         $Port = $p
         break
     } catch {
@@ -99,7 +112,9 @@ $handler = {
 
     $remote = ''
     try {
-        $remote = $client.Client.RemoteEndPoint.Address.ToString()
+        $ra = $client.Client.RemoteEndPoint.Address
+        if ($ra.IsIPv4MappedToIPv6) { $ra = $ra.MapToIPv4() }
+        $remote = $ra.ToString()
         $client.ReceiveTimeout = 15000
         $client.SendTimeout = 120000
         $stream = $client.GetStream()
