@@ -102,6 +102,10 @@
             <action android:name="com.android.phone.EmergencyDialer.DIAL" />
         </intent>
         <package android:name="com.android.phone" />
+        <!-- Text-to-speech engines, listed and chosen over MQTT (TtsPackageBridge) -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
     </queries>
 
     <application

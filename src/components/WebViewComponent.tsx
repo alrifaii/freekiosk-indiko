@@ -184,7 +184,11 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
         if (!p) return null;
 
         // Escape regex special chars except *, then convert * to .*
-        const escaped = p.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+        const glob = (str: string) => str.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+        // "https://*.example.com/*": the leading * stands for subdomains only (and
+        // none), so it cannot reach into the path ("https://evil.org/x.example.com/").
+        const sub = p.match(/^(https?:\/\/)?\*\.(.+)$/i);
+        const escaped = sub ? glob(sub[1] || '') + '(?:[^/?#]+\\.)?' + glob(sub[2]) : glob(p);
 
         // If the pattern already starts with a protocol (http/https), anchor it
         // Otherwise, allow any protocol prefix and make trailing slash optional

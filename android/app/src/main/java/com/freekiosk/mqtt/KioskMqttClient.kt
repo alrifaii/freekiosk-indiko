@@ -707,6 +707,8 @@ class KioskMqttClient(
         }
     }
 
+    private fun jsonPayload(payload: String): JSONObject? = try { JSONObject(payload) } catch (e: Exception) { null }
+
     /** A bare MAC, or JSON with "mac" or "address". */
     private fun macFromPayload(payload: String): String {
         val trimmed = payload.trim()
@@ -785,6 +787,12 @@ class KioskMqttClient(
             "bt_scan_stop" -> "btScanStop" to null
             "bt_pair" -> "btPair" to JSONObject().put("address", macFromPayload(payload))
             "bt_unpair" -> "btUnpair" to JSONObject().put("address", macFromPayload(payload))
+
+            // Offline voices. Payload is JSON {package, url?, ts, sig}, signed with the
+            // admin key from the provisioning QR (checked in TtsPackageBridge).
+            "tts_install" -> "ttsInstall" to jsonPayload(payload)
+            "tts_uninstall" -> "ttsUninstall" to jsonPayload(payload)
+            "tts_engine" -> "ttsEngine" to jsonPayload(payload)
 
             "rotation_start" -> "rotationStart" to null
             "rotation_stop" -> "rotationStop" to null

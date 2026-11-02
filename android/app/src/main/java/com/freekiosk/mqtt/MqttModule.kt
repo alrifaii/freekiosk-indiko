@@ -115,6 +115,30 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
     // state, debounced so a scan that finds many devices does not flood the broker.
     private val btPublishHandler = Handler(Looper.getMainLooper())
     private val btPublishRunnable = Runnable { publishStatusNow() }
+    // Offline voices: TTS engines, signed install/uninstall, engine choice
+    private val tts: TtsPackageBridge by lazy {
+        TtsPackageBridge(
+            reactContext.applicationContext,
+            installer = { url, pkg, done ->
+                com.freekiosk.ManagedAppInstallerModule(reactContext).installFromUrl(
+                    url, null, pkg,
+                    com.facebook.react.bridge.PromiseImpl(
+                        com.facebook.react.bridge.Callback { _ -> done(true, "") },
+                        com.facebook.react.bridge.Callback { args ->
+                            val info = args.getOrNull(0) as? com.facebook.react.bridge.ReadableMap
+                            val message = try { info?.getString("message") } catch (_: Exception) { null }
+                            done(false, message ?: "Fehler")
+                        },
+                    ),
+                )
+            },
+            onChanged = {
+                btPublishHandler.removeCallbacks(btPublishRunnable)
+                btPublishHandler.postDelayed(btPublishRunnable, 400)
+            },
+        )
+    }
+
     private val bt: BluetoothMqttBridge by lazy {
         BluetoothMqttBridge(reactContext.applicationContext) {
             btPublishHandler.removeCallbacks(btPublishRunnable)
@@ -402,6 +426,9 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
                     "btScanStop" -> bt.stopScan()
                     "btPair" -> bt.pair(params?.optString("address", ""))
                     "btUnpair" -> bt.unpair(params?.optString("address", ""))
+                    "ttsInstall" -> tts.install(params)
+                    "ttsUninstall" -> tts.uninstall(params)
+                    "ttsEngine" -> tts.useEngine(params)
                     "setMode" -> {
                         // #209: When switching to a foreground mode (webview / media_player),
                         // bring FreeKiosk to the front from native code so the JS onSetMode
@@ -759,6 +786,13 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
             status.put("bluetooth", bt.status())
         } catch (e: Exception) {
             status.put("bluetooth", JSONObject().put("supported", false).put("lastError", e.message ?: "error"))
+        }
+
+        // Text-to-speech engines (offline voices)
+        try {
+            status.put("tts", tts.status())
+        } catch (e: Exception) {
+            status.put("tts", JSONObject().put("lastError", e.message ?: "error"))
         }
 
         // Rotation

@@ -1,0 +1,5 @@
+node_modules
+dist
+# Die .gitignore im Hauptordner ignoriert alle .json-Dateien, diese hier werden aber gebraucht
+!package.json
+!package-lock.json

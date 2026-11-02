@@ -59,7 +59,7 @@ jobs:
             if ($apk.RawContentLength -ne 200) { throw "$base APK length $($apk.RawContentLength)" }
             $page = Invoke-WebRequest "$base/" -UseBasicParsing
             if ($page.Content -notmatch 'inDiKo Kit') { throw "$base index.html not served" }
-            foreach ($f in 'qrcode.js', 'provisioning.js', 'mqtt.js', 'app.js', 'tablets.js') {
+            foreach ($f in 'qrcode.js', 'provisioning.js', 'mqtt.js', 'app.js', 'tablets.js', 'grids.js', 'kalender/index.html') {
               $r = Invoke-WebRequest "$base/$f" -UseBasicParsing
               if ($r.StatusCode -ne 200) { throw "$base $f not served" }
             }

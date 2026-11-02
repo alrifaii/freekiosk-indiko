@@ -745,18 +745,28 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
           await StorageService.saveUrl(newUrl);
           // A remote "open this page" is an admin decision. With a whitelist active only
           // the start page itself would load and every link inside the new site would be
-          // blocked, so the new site's origin joins the whitelist.
+          // blocked, so the new site joins the whitelist: its origin and its subdomains
+          // (www.youtube.com sends phones to m.youtube.com, Classroom signs in on
+          // accounts.google.com).
           try {
-            const origin = newUrl.match(/^(https?:\/\/[^/?#]+)/i)?.[1];
-            if (origin) {
+            const m = newUrl.match(/^(https?):\/\/([^/?#:]+)(:\d+)?/i);
+            if (m) {
               const [filterOn, filterMode, filterList] = await Promise.all([
                 StorageService.getUrlFilterEnabled(),
                 StorageService.getUrlFilterMode(),
                 StorageService.getUrlFilterList(),
               ]);
-              const pattern = `${origin}/*`;
-              if (filterOn && filterMode === 'whitelist' && !filterList.includes(pattern)) {
-                const nextList = [...filterList, pattern];
+              const host = m[2].toLowerCase();
+              const labels = host.split('.');
+              const isIp = /^[\d.]+$/.test(host) || host.includes(':');
+              // example.co.uk / example.ac.at keep three labels, everything else two
+              const keep = labels.length > 2 && labels[labels.length - 2].length <= 3 && labels[labels.length - 1].length === 2 ? 3 : 2;
+              const site = labels.slice(-keep).join('.');
+              const patterns = [`${m[1]}://${host}${m[3] || ''}/*`];
+              if (!isIp && labels.length >= 2) patterns.push(`https://*.${site}/*`);
+              const missing = patterns.filter(pt => !filterList.includes(pt));
+              if (filterOn && filterMode === 'whitelist' && missing.length) {
+                const nextList = [...filterList, ...missing];
                 await StorageService.saveUrlFilterList(nextList);
                 setUrlFilterList(nextList);
               }

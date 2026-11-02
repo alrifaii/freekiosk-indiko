@@ -146,6 +146,7 @@ function buildProvisioning(o) {
       if ((fk.user || "").trim()) extras.mqtt_username = fk.user.trim();
       if (fk.pass) extras.mqtt_password = fk.pass;
       if ((fk.topic || "").trim()) extras.mqtt_base_topic = fk.topic.trim();
+      if (fk.adminKey) extras.mqtt_admin_key = fk.adminKey;
       const devName = (fk.name || "").trim();
       if (devName) {
         extras.mqtt_device_name = devName;

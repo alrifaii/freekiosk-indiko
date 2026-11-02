@@ -1,0 +1,22 @@
+{
+  "name": "asterics-aac-calendar-generator",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "license": "AGPL-3.0",
+  "description": "Generates linked calendar grids (month, week, day) as an Asterics AAC backup file",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test \"test/*.test.mjs\"",
+    "build:kit": "vite build --outDir ../provisioning-kit/web/kalender --emptyOutDir"
+  },
+  "dependencies": {
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.0",
+    "vite": "^6.0.0"
+  }
+}

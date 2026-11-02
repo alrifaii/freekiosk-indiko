@@ -11,7 +11,9 @@
 //   2. Diesen Code rechts einfuegen, "Send to Espruino", dann links save() eingeben
 //   3. Am Tablet den Puck.js einmal entfernen und neu koppeln (im Kit unter Tablets >
 //      Bluetooth), denn Android merkt sich die alte Tastenliste.
-//   4. In AsTeRICS Grid unter Eingabe > Scanning: Leertaste = weiter, Enter = auswaehlen.
+//   4. Scanning einschalten: im Kit unter Tablets > Bedienung (oder in AsTeRICS Grid
+//      unter Eingabe > Scanning). Dort "Tasten zuruecksetzen" passt genau zu diesem
+//      Taster: kurz druecken = weiter, lang druecken (ab 0,4 s) = auswaehlen.
 
 var KEY = { ENTER: 0x28, SPACE: 0x2C, TAB: 0x2B, F1: 0x3A, F2: 0x3B };
 
@@ -55,23 +57,19 @@ var report = new Uint8Array([
 
 NRF.setServices(undefined, { hid: report });
 
-function tap(key) {
+// Der Taster verhaelt sich wie die Leertaste: gedrueckt = Taste unten, losgelassen =
+// Taste oben. So erkennt AsTeRICS Grid selbst kurz und lang (Standard: ab 0,4 s
+// gehalten = auswaehlen, kurz = weiter), und die Zeit laesst sich dort einstellen.
+function key(down) {
   try {
-    NRF.sendHIDReport([0, 0, key, 0, 0, 0, 0, 0], function () {
-      NRF.sendHIDReport([0, 0, 0, 0, 0, 0, 0, 0]);
-    });
-    LED2.set();
-    setTimeout(function () { LED2.reset(); }, 80);
+    NRF.sendHIDReport([0, 0, down ? KEY.SPACE : 0, 0, 0, 0, 0, 0]);
+    if (down) LED2.set(); else LED2.reset();
   } catch (e) {
     // Nicht verbunden: kurz rot
+    LED2.reset();
     LED1.set();
     setTimeout(function () { LED1.reset(); }, 300);
   }
 }
 
-// Kurz druecken = Leertaste (weiter), lang druecken (ab 0,8 s) = Enter (auswaehlen).
-var pressedAt = 0;
-setWatch(function (e) {
-  if (e.state) { pressedAt = e.time; return; }
-  tap(e.time - pressedAt >= 0.8 ? KEY.ENTER : KEY.SPACE);
-}, BTN, { edge: "both", repeat: true, debounce: 30 });
+setWatch(function (e) { key(e.state); }, BTN, { edge: "both", repeat: true, debounce: 30 });

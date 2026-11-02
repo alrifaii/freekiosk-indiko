@@ -1,0 +1,80 @@
+/* ============================================================
+   Grundlagen: Farben, Schrift, Seitenaufbau, Eingabefelder, Buttons
+   Alle Farben stehen hier als Variablen, die anderen Dateien nutzen nur diese.
+   ============================================================ */
+
+:root {
+  --schrift: #1b2430;
+  --grau: #5d6b7a;
+  --linie: #d9e0e7;
+  --flaeche: #f6f8fa;
+  --akzent: #1f4e79;
+  --akzent-dunkel: #173c5e;
+  --akzent-hell: #dbe9f6;
+  --akzent-flaeche: #f5f9fd;
+  --orange: #f6a03c;
+  --orange-hell: #fff7ec;
+  --rot: #b3261e;
+  --warnung: #8a4b00;
+
+  color-scheme: light; /* immer hell, auch wenn das System im Darkmode ist */
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--schrift);
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; }
+button { font: inherit; color: inherit; }
+h1, h2 { color: var(--schrift); }
+
+/* ---------- Kopfzeile ---------- */
+.kopf {
+  display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap;
+  max-width: 1440px; margin: 0 auto; padding: 20px 20px 6px;
+}
+.kopf h1 { font-size: 1.35rem; margin: 0; }
+.kopf p { margin: 2px 0 0; color: var(--grau); }
+.sprachwahl { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--grau); }
+
+/* ---------- links Menü, rechts Vorschau ---------- */
+.layout {
+  display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 20px; align-items: start;
+  max-width: 1440px; margin: 0 auto; padding: 12px 20px 28px;
+}
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+}
+.panel { background: #fff; border: 1px solid var(--linie); border-radius: 14px; min-width: 0; }
+
+/* ---------- Eingabefelder ---------- */
+input:not([type='radio']):not([type='checkbox']), select {
+  font: inherit; color: var(--schrift); background: #fff; min-width: 0;
+  border: 1px solid var(--linie); border-radius: 10px; padding: 7px 10px;
+}
+input:focus, select:focus { border-color: var(--akzent); outline: none; box-shadow: 0 0 0 3px var(--akzent-hell); }
+:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; }
+
+.eingabe { display: flex; flex-direction: column; gap: 4px; font-size: 0.84rem; color: var(--grau); min-width: 0; }
+.eingabe.reihe { flex-direction: row; align-items: center; justify-content: space-between; }
+.eingabe.reihe input { width: 80px; }
+.haken { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.haken input { width: 18px; height: 18px; accent-color: var(--akzent); flex: none; }
+
+/* ---------- Texte ---------- */
+.hinweis { color: var(--grau); font-size: 0.84rem; margin: 0; }
+.warnung { color: var(--warnung); }
+.lizenz { margin: 0; font-size: 0.72rem; color: var(--grau); }
+
+/* ---------- Buttons ---------- */
+.klein, .chip { border: 1px solid var(--linie); background: #fff; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.klein { align-self: flex-start; font-size: 0.85rem; padding: 6px 12px; }
+.chip { font-size: 0.78rem; padding: 3px 9px; background: var(--flaeche); }
+.klein:hover, .chip:hover { border-color: var(--akzent); color: var(--akzent); }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.weg { border: 0; background: none; color: var(--grau); cursor: pointer; font-size: 1rem; border-radius: 8px; padding: 2px 6px; }
+.weg:hover { background: var(--flaeche); color: var(--schrift); }
+.rot { border-color: var(--rot) !important; color: var(--rot) !important; background: #fff; }
+.link { border: 0; background: none; color: var(--akzent); text-decoration: underline; padding: 0; cursor: pointer; }
+.haupt { font-weight: 700; background: var(--akzent); color: #fff; border: 0; border-radius: 12px; padding: 12px 18px; cursor: pointer; }
+.haupt:hover:not(:disabled) { background: var(--akzent-dunkel); }
+.haupt:disabled { opacity: 0.5; cursor: default; }
