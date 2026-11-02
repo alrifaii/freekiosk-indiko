@@ -111,6 +111,17 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
 
     private var mqttClient: KioskMqttClient? = null
 
+    // Bluetooth over MQTT (bt_power, bt_scan, bt_pair, bt_unpair). Changes republish the
+    // state, debounced so a scan that finds many devices does not flood the broker.
+    private val btPublishHandler = Handler(Looper.getMainLooper())
+    private val btPublishRunnable = Runnable { publishStatusNow() }
+    private val bt: BluetoothMqttBridge by lazy {
+        BluetoothMqttBridge(reactContext.applicationContext) {
+            btPublishHandler.removeCallbacks(btPublishRunnable)
+            btPublishHandler.postDelayed(btPublishRunnable, 400)
+        }
+    }
+
     // ==================== JS status variables (same as HttpServerModule) ====================
 
     private var jsCurrentUrl: String = ""
@@ -386,6 +397,11 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
                         client.imagePublisher?.setInterval(stream, seconds)
                         publishStatusNow()
                     }
+                    "btPower" -> bt.setEnabled(params?.optBoolean("value", false) ?: false)
+                    "btScan" -> bt.scan(params?.optInt("seconds", 15) ?: 15)
+                    "btScanStop" -> bt.stopScan()
+                    "btPair" -> bt.pair(params?.optString("address", ""))
+                    "btUnpair" -> bt.unpair(params?.optString("address", ""))
                     "setMode" -> {
                         // #209: When switching to a foreground mode (webview / media_player),
                         // bring FreeKiosk to the front from native code so the JS onSetMode
@@ -737,6 +753,13 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
 
         // WiFi
         status.put("wifi", getWifiInfo())
+
+        // Bluetooth (adapter, bonded and found devices, last result of a bt_* command)
+        try {
+            status.put("bluetooth", bt.status())
+        } catch (e: Exception) {
+            status.put("bluetooth", JSONObject().put("supported", false).put("lastError", e.message ?: "error"))
+        }
 
         // Rotation
         val rotationStatus = JSONObject().apply {
@@ -1149,6 +1172,8 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
     override fun onCatalystInstanceDestroy() {
         super.onCatalystInstanceDestroy()
         try {
+            btPublishHandler.removeCallbacks(btPublishRunnable)
+            bt.release()
             mqttClient?.disconnect()
             mqttClient = null
             instance = null

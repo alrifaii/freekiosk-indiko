@@ -139,6 +139,7 @@ export type IconName =
   | 'motion-sensor'
   | 'keyboard'
   | 'keyboard-outline'
+  | 'backspace-outline'
   | 'certificate'
   | 'certificate-outline'
   | 'chart-bar'

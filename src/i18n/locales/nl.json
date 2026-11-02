@@ -938,6 +938,7 @@
       "defaultCode": "Standaardcode: 1234",
       "passwordPlaceholder": "Voer wachtwoord in",
       "validate": "Bevestigen",
+      "deleteDigit": "Wissen",
       "wifi": "Wi-Fi",
       "bluetooth": "Bluetooth",
       "audio": "Audio",

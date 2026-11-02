@@ -707,6 +707,18 @@ class KioskMqttClient(
         }
     }
 
+    /** A bare MAC, or JSON with "mac" or "address". */
+    private fun macFromPayload(payload: String): String {
+        val trimmed = payload.trim()
+        if (!trimmed.startsWith("{")) return trimmed
+        return try {
+            val json = JSONObject(trimmed)
+            json.optString("mac", json.optString("address", ""))
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
     /**
      * Map an MQTT entity name (topic suffix) to a command name and optional JSON parameters.
      */
@@ -761,6 +773,18 @@ class KioskMqttClient(
 
             "audio_stop" -> "audioStop" to null
             "audio_beep" -> "audioBeep" to null
+
+            // Bluetooth management. Payloads: bt_power ON/OFF, bt_scan seconds (or
+            // {"seconds":15}), bt_pair / bt_unpair a MAC (or {"mac":"AA:BB:..."}).
+            "bt_power" -> "btPower" to JSONObject().put("value", payload.trim().uppercase() == "ON")
+            "bt_scan" -> {
+                val seconds = payload.trim().toIntOrNull()
+                    ?: try { JSONObject(payload).optInt("seconds", 15) } catch (e: Exception) { 15 }
+                "btScan" to JSONObject().put("seconds", seconds)
+            }
+            "bt_scan_stop" -> "btScanStop" to null
+            "bt_pair" -> "btPair" to JSONObject().put("address", macFromPayload(payload))
+            "bt_unpair" -> "btUnpair" to JSONObject().put("address", macFromPayload(payload))
 
             "rotation_start" -> "rotationStart" to null
             "rotation_stop" -> "rotationStop" to null

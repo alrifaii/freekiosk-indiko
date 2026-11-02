@@ -12,6 +12,9 @@ import { useTranslation } from 'react-i18next';
 
 const { KioskModule, AudioControlModule, FlashlightModule, RotationControlModule } = NativeModules;
 
+const PIN_MAX_DIGITS = 6;
+const KEYPAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok'];
+
 interface PinInputProps {
   onSuccess: () => void;
   storedPin: string; // Kept for backward compatibility but not used
@@ -112,6 +115,22 @@ const PinInput: React.FC<PinInputProps> = ({ onSuccess }) => {
       setPin(filtered);
     } else {
       setPin(text);
+    }
+  };
+
+  // On-screen keypad for numeric PINs. The system keyboard is unreliable on a
+  // kiosk tablet: Android hides it as soon as a hardware keyboard is paired, and
+  // assistive switch/scanning interfaces present themselves as exactly that, so
+  // the PIN screen used to be a dead end. The text field stays for a real
+  // hardware keyboard; the soft keyboard is no longer needed at all.
+  const handleKeypadPress = (key: string): void => {
+    if (isLoading || isLockedOut) return;
+    if (key === 'del') {
+      setPin(p => p.slice(0, -1));
+    } else if (key === 'ok') {
+      handleSubmit();
+    } else {
+      setPin(p => (p.length < PIN_MAX_DIGITS ? p + key : p));
     }
   };
 
@@ -304,7 +323,8 @@ const PinInput: React.FC<PinInputProps> = ({ onSuccess }) => {
             onChangeText={handlePinChange}
             secureTextEntry={true}
             keyboardType={pinMode === 'alphanumeric' ? 'default' : 'numeric'}
-            maxLength={pinMode === 'alphanumeric' ? undefined : 6}
+            showSoftInputOnFocus={pinMode === 'alphanumeric'}
+            maxLength={pinMode === 'alphanumeric' ? undefined : PIN_MAX_DIGITS}
             placeholder={pinMode === 'alphanumeric' ? t('components.pinInput.passwordPlaceholder') : '••••'}
             placeholderTextColor="#999999"
             autoCapitalize={pinMode === 'alphanumeric' ? 'none' : undefined}
@@ -317,17 +337,56 @@ const PinInput: React.FC<PinInputProps> = ({ onSuccess }) => {
             onSubmitEditing={handleSubmit}
           />
 
-          <TouchableOpacity
-            style={[styles.button, (isLoading || isLockedOut) && styles.buttonDisabled]}
-            onPress={handleSubmit}
-            disabled={isLoading || isLockedOut}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>{t('components.pinInput.validate')}</Text>
-            )}
-          </TouchableOpacity>
+          {pinMode === 'numeric' ? (
+            <View style={styles.keypad}>
+              {KEYPAD_KEYS.map(key => (
+                <TouchableOpacity
+                  key={key}
+                  style={[
+                    styles.key,
+                    key === 'ok' && styles.keyOk,
+                    key === 'del' && styles.keyDel,
+                    (isLoading || isLockedOut) && styles.buttonDisabled,
+                  ]}
+                  onPress={() => handleKeypadPress(key)}
+                  onLongPress={key === 'del' ? () => setPin('') : undefined}
+                  disabled={isLoading || isLockedOut}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    key === 'del'
+                      ? t('components.pinInput.deleteDigit')
+                      : key === 'ok'
+                        ? t('components.pinInput.validate')
+                        : key
+                  }
+                >
+                  {key === 'ok' ? (
+                    isLoading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Icon name="check" size={30} color={Colors.textOnPrimary} />
+                    )
+                  ) : key === 'del' ? (
+                    <Icon name="backspace-outline" size={28} color={Colors.textPrimary} />
+                  ) : (
+                    <Text style={styles.keyText}>{key}</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={[styles.button, (isLoading || isLockedOut) && styles.buttonDisabled]}
+              onPress={handleSubmit}
+              disabled={isLoading || isLockedOut}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>{t('components.pinInput.validate')}</Text>
+              )}
+            </TouchableOpacity>
+          )}
         </>
       )}
 
@@ -454,6 +513,35 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  keypad: {
+    width: 3 * 84 + 2 * 12,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 12,
+  },
+  key: {
+    width: 84,
+    height: 64,
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  keyDel: {
+    backgroundColor: '#f0f2f7',
+  },
+  keyOk: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  keyText: {
+    fontSize: 28,
+    fontWeight: '500',
+    color: Colors.textPrimary,
   },
   warningContainer: {
     backgroundColor: '#fff3cd',

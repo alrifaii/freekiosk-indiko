@@ -290,6 +290,9 @@ class MainActivity : ReactActivity() {
     // Register volume change receiver to track volume changes
     registerVolumeChangeReceiver()
 
+    // Keep the on-screen keyboard available with a hardware keyboard paired
+    ensureImeWithHardKeyboard()
+
     // Settings that arrived with a setup-wizard QR are replayed once through the
     // ADB config path below - if applied, app will restart
     if (applyProvisioningConfig()) {
@@ -1636,6 +1639,27 @@ class MainActivity : ReactActivity() {
    * The store is cleared before the replay, so a config that is rejected (no PIN,
    * bad JSON) shows its toast once and is not retried on every launch.
    */
+  /**
+   * Android hides the soft keyboard while any hardware keyboard is connected.
+   * Bluetooth switch and scanning interfaces register as one, so web forms
+   * inside the kiosk lost their keyboard the moment such a device was paired.
+   * show_ime_with_hard_keyboard keeps it; it is a secure setting, so this only
+   * works where WRITE_SECURE_SETTINGS was granted over ADB, and is a silent
+   * no-op on QR-provisioned tablets (the PIN screen has its own keypad there).
+   */
+  private fun ensureImeWithHardKeyboard() {
+    if (checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) != PackageManager.PERMISSION_GRANTED) return
+    try {
+      val key = "show_ime_with_hard_keyboard"
+      if (android.provider.Settings.Secure.getInt(contentResolver, key, 0) != 1) {
+        android.provider.Settings.Secure.putInt(contentResolver, key, 1)
+        android.util.Log.i("FreeKiosk", "Soft keyboard enabled alongside hardware keyboards")
+      }
+    } catch (e: Exception) {
+      android.util.Log.w("FreeKiosk", "Could not set show_ime_with_hard_keyboard: ${e.message}")
+    }
+  }
+
   private fun applyProvisioningConfig(): Boolean {
     val prefs = getSharedPreferences(DeviceAdminReceiver.PROVISIONING_CONFIG_PREFS, Context.MODE_PRIVATE)
     val entries = prefs.all

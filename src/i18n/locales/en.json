@@ -938,6 +938,7 @@
       "defaultCode": "Default code: 1234",
       "passwordPlaceholder": "Enter password",
       "validate": "Validate",
+      "deleteDigit": "Delete",
       "wifi": "Wi-Fi",
       "bluetooth": "Bluetooth",
       "audio": "Audio",
