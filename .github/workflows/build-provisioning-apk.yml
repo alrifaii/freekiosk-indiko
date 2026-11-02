@@ -1,4 +1,4 @@
-name: Build provisioning APK and QR kit
+name: Build provisioning APK and inDiKo Kit
 
 # Builds the -Pcloudprovi variant (no accessibility service, so Play Protect lets the
 # setup wizard install it) and packs it with tools/provisioning-kit into a ZIP that IT
@@ -52,29 +52,48 @@ jobs:
           Get-Content "$PWD\server.log", "$PWD\server.err" -ErrorAction SilentlyContinue
           if (-not $up) { throw "Server not reachable on 127.0.0.1:18080 (process exited: $($proc.HasExited))" }
 
-          function Test-Kit([string]$base) {
+          function Get-Status($script) {
+            try { & $script | Out-Null; return 200 } catch { return [int]$_.Exception.Response.StatusCode.value__ }
+          }
+
+          function Test-Kit([string]$base, [bool]$local) {
             $info = Invoke-RestMethod "$base/api/info"
             if ($info.apkName -ne 'dummy.apk' -or $info.apkSize -ne 200) { throw "$base api/info wrong: $($info | ConvertTo-Json)" }
             $apk = Invoke-WebRequest "$base/freekiosk.apk" -UseBasicParsing
             if ($apk.RawContentLength -ne 200) { throw "$base APK length $($apk.RawContentLength)" }
             $page = Invoke-WebRequest "$base/" -UseBasicParsing
-            if ($page.Content -notmatch 'FreeKiosk QR-Kit') { throw "$base index.html not served" }
-            foreach ($f in 'qrcode.js', 'provisioning.js') {
+            if ($page.Content -notmatch 'inDiKo Kit') { throw "$base index.html not served" }
+            foreach ($f in 'qrcode.js', 'provisioning.js', 'mqtt.js', 'app.js', 'tablets.js', 'usb.js') {
               $r = Invoke-WebRequest "$base/$f" -UseBasicParsing
               if ($r.StatusCode -ne 200) { throw "$base $f not served" }
             }
-            $missing = $null
-            try { Invoke-WebRequest "$base/nope.txt" -UseBasicParsing | Out-Null } catch { $missing = $_.Exception.Response.StatusCode.value__ }
+            $missing = Get-Status { Invoke-WebRequest "$base/nope.txt" -UseBasicParsing }
             if ($missing -ne 404) { throw "$base missing file gave $missing instead of 404" }
+
+            # USB endpoints: JSON for this laptop, 403 for everyone else and without the X-Kit header
+            if ($local) {
+              $usb = Invoke-RestMethod "$base/api/usb"
+              if ($null -eq $usb.devices -and $usb.PSObject.Properties.Name -notcontains 'devices') { throw "$base api/usb has no devices: $($usb | ConvertTo-Json)" }
+              Write-Host "   adb: '$($usb.adb)'  devices: $(@($usb.devices).Count)"
+            } else {
+              $s = Get-Status { Invoke-WebRequest "$base/api/usb" -UseBasicParsing }
+              if ($s -ne 403) { throw "$base api/usb from the network gave $s instead of 403" }
+            }
+            $body = '{"serial":"not a serial!","action":"wake"}'
+            $s = Get-Status { Invoke-WebRequest "$base/api/usb/run" -Method Post -Body $body -ContentType 'application/json' -UseBasicParsing }
+            if ($s -ne 403) { throw "$base POST without X-Kit gave $s instead of 403" }
+            $s = Get-Status { Invoke-WebRequest "$base/api/usb/run" -Method Post -Body $body -ContentType 'application/json' -Headers @{ 'X-Kit' = '1' } -UseBasicParsing }
+            $want = 403; if ($local) { $want = 400 }
+            if ($s -ne $want) { throw "$base POST with bad serial gave $s instead of $want" }
             Write-Host "OK  $base"
             return $info
           }
 
-          $info = Test-Kit 'http://127.0.0.1:18080'
-          Test-Kit 'http://localhost:18080' | Out-Null
+          $info = Test-Kit 'http://127.0.0.1:18080' $true
+          Test-Kit 'http://localhost:18080' $true | Out-Null
           # The address a tablet would use
           $lan = @($info.ips | Where-Object { $_.address })[0].address
-          if ($lan) { Test-Kit "http://${lan}:18080" | Out-Null }
+          if ($lan) { Test-Kit "http://${lan}:18080" $false | Out-Null }
           Write-Host ($info | ConvertTo-Json -Depth 4)
           Stop-Process -Id $proc.Id -Force
 
@@ -131,7 +150,7 @@ jobs:
         run: |
           REF="${GITHUB_REF_NAME//\//-}"
           APK_NAME="FreeKiosk-${REF}-provisioning.apk"
-          KIT_DIR="FreeKiosk-QR-Kit-${REF}"
+          KIT_DIR="inDiKo-Kit-${REF}"
           cp android/app/build/outputs/apk/release/app-release.apk "$APK_NAME"
           sha256sum "$APK_NAME"
 
@@ -150,7 +169,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FreeKiosk-QR-Kit
+          name: inDiKo-Kit
           path: |
             ${{ env.KIT_ZIP }}
             ${{ env.APK_NAME }}
@@ -164,5 +183,6 @@ jobs:
             ${{ env.APK_NAME }}
           prerelease: true
           body: |
-            **FreeKiosk-QR-Kit** (ZIP): entpacken, `Start.bat` doppelklicken, QR-Codes erzeugen.
+            **inDiKo Kit** (ZIP): entpacken, `Start.bat` doppelklicken. Einrichten per QR-Code,
+            Tablets live per MQTT, Notfall per USB.
             Die APK ist die Provisioning-Variante (-Pcloudprovi) mit Einstellungen aus dem QR-Code.

@@ -1,67 +1,65 @@
-FreeKiosk QR-Kit
-================
+inDiKo Kit
+==========
 
-Mit diesem Kit richten Sie Android-Tablets (getestet: Samsung Galaxy Tab A9+) als
-Kommunikationsgeraet fuer AsTeRICS Grid ein. Ein zurueckgesetztes Tablet scannt einen
-QR-Code, laedt FreeKiosk, macht es zum Geraetebesitzer und startet danach die
-eingestellte Webseite im gesperrten Vollbild. Kein Konto, keine Verwaltungssoftware,
-keine Kosten.
-
-Entstanden im Projekt inDiKo an der FH Technikum Wien.
+Richtet Android-Tablets (getestet: Samsung Galaxy Tab A9+) als Kommunikationsgeraet
+fuer AsTeRICS Grid ein und hilft danach im Alltag. Ohne Installation, ohne Konto,
+ohne Verwaltungssoftware. Entstanden im Projekt inDiKo an der FH Technikum Wien.
 
 
-Was im Ordner liegt
--------------------
-  Start.bat        Doppelklick unter Windows. Startet den Server und oeffnet den Browser.
-  start.command    Dasselbe fuer macOS und Linux (braucht Python 3).
-  *.apk            FreeKiosk mit QR-Einstellungen. Nicht umbenennen noetig.
-  web\             Die Oberflaeche.
-  server.ps1       Server fuer Windows (PowerShell, ohne Installation).
-  server.py        Server fuer macOS/Linux und als Ersatz unter Windows.
+Starten
+-------
+Windows:        Start.bat doppelklicken. Firewall-Frage mit "Zulassen" beantworten
+                (private Netzwerke). Das schwarze Fenster offen lassen.
+macOS, Linux:   start.command (braucht Python 3).
+
+Im Browser oeffnet sich das Kit mit drei Bereichen.
 
 
-So geht's
----------
-1. Start.bat doppelklicken. Fragt die Windows-Firewall nach, "Zugriff zulassen"
-   fuer private Netzwerke waehlen. Das schwarze Fenster offen lassen.
-2. Im Browser oeffnet sich das QR-Kit. Dort eintragen
-     - woher das Tablet die App holt (dieser Laptop oder Internet)
-     - das WLAN fuer die Einrichtung
-     - PIN und Start-URL fuer FreeKiosk, auf Wunsch MQTT
-3. "Grossansicht" oder "Drucken".
-4. Am Tablet: auf Werkseinstellungen zuruecksetzen, am ersten Willkommen-Bildschirm
-   sechsmal tippen, QR scannen, Hinweise mit "Weiter" bestaetigen.
-5. Im schwarzen Fenster erscheint "... hat die App geladen". FreeKiosk startet,
-   uebernimmt die Einstellungen, startet einmal neu und zeigt die Start-URL.
+Einrichten
+----------
+WLAN, Name, PIN eintragen. Der QR-Code wird gruen ("Bereit zum Scannen").
+Am Tablet: auf Werkseinstellungen zuruecksetzen, am ersten Willkommen-Bildschirm
+sechsmal tippen, QR scannen, mit "Weiter" durchklicken. FreeKiosk startet mit allen
+Einstellungen. Fuer das naechste Tablet "Naechstes Tablet" (zaehlt den Namen hoch).
 
-Fuer das naechste Tablet "Naechstes Tablet" druecken (zaehlt den Geraetenamen hoch)
-und wieder scannen.
+
+Tablets
+-------
+Alle Tablets mit demselben Kanal, live: Akku, WLAN, Bildschirm, Bluetooth.
+Antippen fuer Steuerung: neu laden, wecken, Helligkeit, Lautstaerke, Nachricht,
+Vorlesen, Bluetooth-Geraete suchen, koppeln, entfernen, AsTeRICS Grid abfragen.
+Akku unter 20 %: das Tablet zeigt einen Hinweis (solange das Kit offen ist).
+Der Browser verbindet sich direkt per WebSocket mit dem MQTT-Server.
+
+
+USB
+---
+Fuer ein Tablet am Kabel, auch ohne Internet: Bluetooth aus/an, Tastatur erzwingen,
+PIN senden, Bildschirm wecken, Rechte nachruesten. Braucht adb; fehlt es, laedt das
+Kit die Platform-Tools von Google auf Knopfdruck. Am Tablet muss USB-Debugging an
+sein. usb\Notfall.bat macht dasselbe ohne Kit.
 
 
 Wichtig
 -------
-- Laptop und Tablets muessen im selben WLAN sein, wenn die App vom Laptop kommt.
-  Viele Schul-WLANs blockieren Verbindungen zwischen Geraeten. Dann einen
-  Handy-Hotspot verwenden oder im Kit "Aus dem Internet" waehlen.
+- Kommt die App vom Laptop, muessen Laptop und Tablets im selben WLAN sein. Viele
+  Schul-WLANs trennen Geraete voneinander: dann Handy-Hotspot oder Quelle "Internet".
 - WLANs mit Benutzername (802.1X, eduroam) gehen im QR nicht.
 - WLAN-Passwort und PIN stehen im Klartext im QR. Ausdrucke wie Passwoerter behandeln.
-- Die Seiten "Geraet ist nicht privat", "Google-Dienste" und die Samsung-Lizenz
-  zeigt Android bei jedem QR-Enrollment. Sie lassen sich nicht abschalten.
-- Ein so eingerichtetes Tablet zuruecksetzen: in FreeKiosk unten rechts tippen
-  (siebenmal, oder fuenfmal irgendwo, je nach Einstellung), PIN eingeben, unter
-  Sicherheit "Device Owner entfernen", danach normal ueber die
-  Android-Einstellungen zuruecksetzen.
+- Der oeffentliche MQTT-Server (broker.emqx.io) ist zum Testen. Wer den Kanal kennt,
+  kann die Tablets steuern. Fuer den Echtbetrieb einen eigenen Server mit Passwort.
+- Ein Bluetooth-Taster gilt fuer Android als Tastatur und blendet die
+  Bildschirmtastatur aus. Der PIN-Bildschirm hat dafuer ein eigenes Ziffernfeld.
+  Fuer Webseiten: "Tastatur erzwingen" oder "Rechte nachruesten" unter USB.
+- Tablet wieder freigeben: unten rechts siebenmal tippen, PIN, unter Sicherheit
+  "Device Owner entfernen", danach normal zuruecksetzen.
 
 
 Fehlersuche
 -----------
-- Kamera oeffnet sich nicht: Es wurde nicht am allerersten Bildschirm getippt.
-- "App blocked to protect your device": Google laesst die App nicht zu. Einrichtung
-  per USB (ADB) ist weiterhin moeglich, siehe Anleitung von FreeKiosk.
-- "Couldn't set up device": Pruefsumme passt nicht. Im Kit pruefen, ob der Link auf
-  genau die APK aus diesem Ordner zeigt.
-- Download haengt und im Fenster erscheint nichts: Firewall oder WLAN trennt Laptop
-  und Tablet.
-- PIN-Eingabe ohne Bildschirmtastatur: Ein Bluetooth-Taster (z. B. Puck.js) gilt als
-  Tastatur. Auf dem PIN-Bildschirm ueber den Bluetooth-Knopf trennen.
-- Start.bat schliesst sich sofort: Fenster-Meldung lesen; meist fehlt die .apk-Datei.
+- Kamera oeffnet sich nicht: nicht am allerersten Bildschirm getippt.
+- "Couldn't set up device": Pruefsumme passt nicht zur geladenen APK.
+- Download haengt, im Fenster erscheint kein "... hat die App geladen":
+  Firewall oder WLAN trennt Laptop und Tablet.
+- Tablets bleiben leer: Kanal im Kit und am Tablet vergleichen (Tablets > Regler-Symbol).
+- Start.bat schliesst sich sofort: Meldung lesen, meist fehlt die .apk-Datei.

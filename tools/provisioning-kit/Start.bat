@@ -1,7 +1,7 @@
 @echo off
-rem FreeKiosk QR-Kit: startet den kleinen Webserver und oeffnet die Oberflaeche im Browser.
+rem inDiKo Kit: startet den kleinen Webserver und oeffnet die Oberflaeche im Browser.
 cd /d "%~dp0"
-title FreeKiosk QR-Kit
+title inDiKo Kit
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0server.ps1"
 set RC=%errorlevel%
 if "%RC%"=="2" goto ende
