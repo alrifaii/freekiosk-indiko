@@ -135,7 +135,11 @@ function buildProvisioning(o) {
       if ((fk.user || "").trim()) extras.mqtt_username = fk.user.trim();
       if (fk.pass) extras.mqtt_password = fk.pass;
       if ((fk.topic || "").trim()) extras.mqtt_base_topic = fk.topic.trim();
-      if ((fk.name || "").trim()) extras.mqtt_device_name = fk.name.trim();
+      const devName = (fk.name || "").trim();
+      if (devName) {
+        extras.mqtt_device_name = devName;
+        if (!/^[A-Za-z0-9_.-]+$/.test(devName)) warnings.push("Der Gerätename landet unverändert im MQTT-Topic. Leerzeichen, Umlaute oder Sonderzeichen machen Probleme mit Monitor und Home Assistant. Besser zum Beispiel tablet-01.");
+      }
     }
     const lines = (fk.extra || "").split(/\r?\n/);
     lines.forEach((line, i) => {

@@ -277,8 +277,8 @@ th { font-weight: 600; width: 40%; }
                 </div>
                 <div class="field">
                   <label class="lbl" for="mq-name">Gerätename</label>
-                  <input type="text" id="mq-name" value="Tablet 1" spellcheck="false">
-                  <span class="hint">Mit „Nächstes Tablet“ zählt die Nummer hoch.</span>
+                  <input type="text" id="mq-name" value="tablet-01" spellcheck="false">
+                  <span class="hint">Steht so im MQTT-Topic. Nur Buchstaben, Ziffern, - und _, ohne Leerzeichen. Mit „Nächstes Tablet“ zählt die Nummer hoch.</span>
                 </div>
               </div>
             </fieldset>
@@ -355,7 +355,7 @@ th { font-weight: 600; width: 40%; }
 (function () {
   "use strict";
   const $ = (id) => document.getElementById(id);
-  const STORE = "fkkit.v1";
+  const STORE = "fkkit.v2";
   const persistIds = ["src-laptop", "src-net", "ip", "net-url", "cs-sig", "cs-pkg", "ssid", "sec", "hidden-net", "keep-apps", "skip-edu", "locale", "tz",
     "fk-on", "fk-url", "fk-screen", "fk-statusbar", "fk-corner", "fk-lockbt", "fk-reset", "fk-mqtt", "mq-broker", "mq-port", "mq-user", "mq-topic", "mq-name", "fk-extra"];
   const state = { info: null, sig: null, pkg: null, scheme: 0, apkName: "", apkSize: 0 };
@@ -509,7 +509,7 @@ th { font-weight: 600; width: 40%; }
   function nextTablet() {
     const el = $("mq-name");
     const m = el.value.match(/^(.*?)(\d+)\s*$/);
-    el.value = m ? m[1] + (parseInt(m[2], 10) + 1) : (el.value.trim() || "Tablet") + " 2";
+    el.value = m ? m[1] + String(parseInt(m[2], 10) + 1).padStart(m[2].length, "0") : (el.value.trim() || "tablet") + "-02";
     render();
   }
 
