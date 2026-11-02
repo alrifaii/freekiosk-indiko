@@ -165,7 +165,18 @@ class MainActivity : ReactActivity() {
       "mqtt_allow_control" to "@kiosk_mqtt_allow_control",
       "mqtt_device_name" to "@kiosk_mqtt_device_name",
       "dashboard_mode" to "@kiosk_dashboard_mode_enabled",
-      "kiosk_enabled" to "@kiosk_enabled"
+      "kiosk_enabled" to "@kiosk_enabled",
+      // Lock-screen controls on the PIN screen. A Bluetooth switch that acts as a keyboard
+      // hides the on-screen keyboard and locks the user out of the PIN prompt; the
+      // Bluetooth control there is the way back, so it has to be settable at provisioning.
+      "lockscreen_controls_enabled" to "@kiosk_lockscreen_controls_enabled",
+      "lockscreen_wifi_enabled" to "@kiosk_lockscreen_wifi_enabled",
+      "lockscreen_bluetooth_enabled" to "@kiosk_lockscreen_bluetooth_enabled",
+      "lockscreen_emergency_call_enabled" to "@kiosk_lockscreen_emergency_call_enabled",
+      "lockscreen_audio_enabled" to "@kiosk_lockscreen_audio_enabled",
+      "lockscreen_flashlight_enabled" to "@kiosk_lockscreen_flashlight_enabled",
+      "lockscreen_brightness_enabled" to "@kiosk_lockscreen_brightness_enabled",
+      "lockscreen_rotation_lock_enabled" to "@kiosk_lockscreen_rotation_lock_enabled"
     )
 
     /** Keys handled by their own block, so they are recognized without being in the map. */

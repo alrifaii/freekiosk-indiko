@@ -47,9 +47,10 @@ Wichtig
 - WLAN-Passwort und PIN stehen im Klartext im QR. Ausdrucke wie Passwoerter behandeln.
 - Die Seiten "Geraet ist nicht privat", "Google-Dienste" und die Samsung-Lizenz
   zeigt Android bei jedem QR-Enrollment. Sie lassen sich nicht abschalten.
-- Ein so eingerichtetes Tablet zuruecksetzen: in FreeKiosk fuenfmal unten rechts
-  tippen, PIN eingeben, unter Sicherheit "Device Owner entfernen", danach normal
-  ueber die Android-Einstellungen zuruecksetzen.
+- Ein so eingerichtetes Tablet zuruecksetzen: in FreeKiosk unten rechts tippen
+  (siebenmal, oder fuenfmal irgendwo, je nach Einstellung), PIN eingeben, unter
+  Sicherheit "Device Owner entfernen", danach normal ueber die
+  Android-Einstellungen zuruecksetzen.
 
 
 Fehlersuche
@@ -61,4 +62,6 @@ Fehlersuche
   genau die APK aus diesem Ordner zeigt.
 - Download haengt und im Fenster erscheint nichts: Firewall oder WLAN trennt Laptop
   und Tablet.
+- PIN-Eingabe ohne Bildschirmtastatur: Ein Bluetooth-Taster (z. B. Puck.js) gilt als
+  Tastatur. Auf dem PIN-Bildschirm ueber den Bluetooth-Knopf trennen.
 - Start.bat schliesst sich sofort: Fenster-Meldung lesen; meist fehlt die .apk-Datei.

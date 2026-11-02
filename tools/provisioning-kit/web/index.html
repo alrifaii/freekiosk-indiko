@@ -235,7 +235,7 @@ th { font-weight: 600; width: 40%; }
             <div class="field">
               <label class="lbl" for="fk-pin">PIN für die Einstellungen</label>
               <input type="text" id="fk-pin" inputmode="numeric" maxlength="6" value="" spellcheck="false">
-              <span class="hint">4 bis 6 Ziffern. Damit kommt man am Tablet in die FreeKiosk-Einstellungen (fünfmal unten rechts tippen).</span>
+              <span class="hint">4 bis 6 Ziffern. Damit kommt man am Tablet in die FreeKiosk-Einstellungen.</span>
             </div>
             <div class="field">
               <label class="lbl" for="fk-url">Start-URL</label>
@@ -244,6 +244,8 @@ th { font-weight: 600; width: 40%; }
           </div>
           <label class="check"><input type="checkbox" id="fk-screen" checked> Bildschirm nie ausschalten</label>
           <label class="check"><input type="checkbox" id="fk-statusbar" checked> Akku und Uhrzeit am oberen Rand zeigen</label>
+          <label class="check"><input type="checkbox" id="fk-corner" checked> <span>Einstellungen nur über die Ecke unten rechts öffnen, siebenmal schnell tippen <span class="hint">(verhindert, dass schnelles Tippen beim Bedienen versehentlich die PIN-Abfrage öffnet; sonst fünfmal irgendwo)</span></span></label>
+          <label class="check"><input type="checkbox" id="fk-lockbt" checked> <span>Bluetooth-Knopf auf dem PIN-Bildschirm <span class="hint">(ein Taster wie Puck.js gilt als Tastatur und blendet die Bildschirmtastatur aus; über den Knopf lässt er sich trennen)</span></span></label>
           <label class="check"><input type="checkbox" id="fk-reset"> <span>Werksreset in den Android-Einstellungen sperren <span class="hint">(danach nur noch über FreeKiosk oder die Recovery)</span></span></label>
           <div class="sub">
             <label class="check"><input type="checkbox" id="fk-mqtt"> <span>Status per MQTT an einen Broker senden</span></label>
@@ -338,7 +340,8 @@ th { font-weight: 600; width: 40%; }
             <tr><th>„Couldn't set up device“</th><td>Prüfsumme passt nicht zur geladenen APK. Prüfen, ob der Link auf genau diese Datei zeigt.</td></tr>
             <tr><th>Download hängt</th><td>Tablet erreicht den Laptop nicht. Im Laptop-Fenster erscheint dann keine Zeile „hat die App geladen“. Firewall-Freigabe prüfen oder Handy-Hotspot nutzen.</td></tr>
             <tr><th>Einstellungen fehlen</th><td>Die PIN fehlte, oder die APK stammt nicht aus diesem Kit. Beim ersten Start zeigt FreeKiosk kurz an, was übernommen wurde.</td></tr>
-            <tr><th>Reset ist gesperrt</th><td>In FreeKiosk (fünfmal unten rechts, PIN) unter Sicherheit „Device Owner entfernen“ wählen, danach zurücksetzen.</td></tr>
+            <tr><th>PIN-Eingabe ohne Tastatur</th><td>Ein verbundener Taster blendet die Bildschirmtastatur aus. Auf dem PIN-Bildschirm über den Bluetooth-Knopf trennen, dann erscheint die Tastatur wieder.</td></tr>
+            <tr><th>Reset ist gesperrt</th><td>In FreeKiosk (unten rechts tippen, PIN) unter Sicherheit „Device Owner entfernen“ wählen, danach zurücksetzen.</td></tr>
           </tbody>
         </table>
       </div>
@@ -354,7 +357,7 @@ th { font-weight: 600; width: 40%; }
   const $ = (id) => document.getElementById(id);
   const STORE = "fkkit.v1";
   const persistIds = ["src-laptop", "src-net", "ip", "net-url", "cs-sig", "cs-pkg", "ssid", "sec", "hidden-net", "keep-apps", "skip-edu", "locale", "tz",
-    "fk-on", "fk-url", "fk-screen", "fk-statusbar", "fk-reset", "fk-mqtt", "mq-broker", "mq-port", "mq-user", "mq-topic", "mq-name", "fk-extra"];
+    "fk-on", "fk-url", "fk-screen", "fk-statusbar", "fk-corner", "fk-lockbt", "fk-reset", "fk-mqtt", "mq-broker", "mq-port", "mq-user", "mq-topic", "mq-name", "fk-extra"];
   const state = { info: null, sig: null, pkg: null, scheme: 0, apkName: "", apkSize: 0 };
 
   function load() {
@@ -395,6 +398,7 @@ th { font-weight: 600; width: 40%; }
       fk: $("fk-on").checked ? {
         pin: $("fk-pin").value, url: $("fk-url").value, keepScreenOn: $("fk-screen").checked,
         statusBar: $("fk-statusbar").checked, blockReset: $("fk-reset").checked,
+        cornerReturn: $("fk-corner").checked, lockBluetooth: $("fk-lockbt").checked,
         mqtt: $("fk-mqtt").checked, broker: $("mq-broker").value, port: $("mq-port").value,
         user: $("mq-user").value, pass: $("mq-pass").value, topic: $("mq-topic").value, name: $("mq-name").value,
         extra: $("fk-extra").value

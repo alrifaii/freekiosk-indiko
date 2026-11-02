@@ -114,6 +114,15 @@ function buildProvisioning(o) {
     extras.status_bar_enabled = String(!!fk.statusBar);
     if (fk.statusBar) { extras.status_bar_show_battery = "true"; extras.status_bar_show_time = "true"; }
     if (fk.blockReset) extras.block_factory_reset = "true";
+    if (fk.cornerReturn) {
+      extras.return_mode = "button";
+      extras.return_button_position = "bottom-right";
+      extras.return_tap_count = "7";
+    }
+    if (fk.lockBluetooth) {
+      extras.lockscreen_controls_enabled = "true";
+      extras.lockscreen_bluetooth_enabled = "true";
+    }
     if (fk.mqtt) {
       const broker = (fk.broker || "").trim();
       if (!broker) problems.push("MQTT-Broker fehlt.");
