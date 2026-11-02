@@ -65,6 +65,14 @@
   function fill(el, ...kids) {
     el.replaceChildren(...kids.flat(Infinity).filter((k) => k != null && k !== false));
   }
+  // Toggle tile, same look as the ones in index.html
+  function toggle(label, iconName, checked, onChange, wide) {
+    const input = h("input", { type: "checkbox", checked: !!checked, "aria-label": label });
+    input.addEventListener("change", () => onChange(input.checked));
+    return h("label", { class: "tg" + (wide ? " wide" : "") }, input,
+      h("span", { class: "tg-in" }, h("span", { class: "tg-ic" }, icon(iconName)),
+        h("span", { class: "tg-t" }, h("b", {}, label), h("small", { class: "tg-on" }, "An"), h("small", { class: "tg-off" }, "Aus"))));
+  }
   let hudTimer = null;
   function hud(text, kind) {
     const el = $("hud");
@@ -101,7 +109,7 @@
   }
 
   // ---------------------------------------------------------------- navigation
-  const views = ["setup", "tablets", "usb"];
+  const views = ["setup", "tablets"];
   const listeners = {};
   function show(view) {
     if (!views.includes(view)) view = "setup";
@@ -229,7 +237,7 @@
     const laptop = radio("src") === "laptop";
     $("row-ip").hidden = !laptop;
     $("row-net").hidden = laptop;
-    $("mqtt-rows").hidden = !$("fk-mqtt").checked;
+    $("mqtt-group").hidden = !$("fk-mqtt").checked;
 
     const res = buildProvisioning(opts());
     if (laptop && !state.info) res.problems.unshift("Start.bat läuft nicht. Oder Quelle „Internet“.");
@@ -379,7 +387,7 @@
   });
 
   window.Kit = {
-    $, h, fill, icon, hud, ago, api, lsGet, lsSet, mqttSettings,
+    $, h, fill, icon, toggle, hud, ago, api, lsGet, lsSet, mqttSettings,
     onShow(view, fn) { (listeners[view] = listeners[view] || []).push(fn); },
     onChange(fn) { changeHooks.push(fn); },
     ready,

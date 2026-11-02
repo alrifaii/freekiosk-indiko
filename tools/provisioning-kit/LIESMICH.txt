@@ -12,7 +12,7 @@ Windows:        Start.bat doppelklicken. Firewall-Frage mit "Zulassen" beantwort
                 (private Netzwerke). Das schwarze Fenster offen lassen.
 macOS, Linux:   start.command (braucht Python 3).
 
-Im Browser oeffnet sich das Kit mit drei Bereichen.
+Im Browser oeffnet sich das Kit mit zwei Bereichen.
 
 
 Einrichten
@@ -32,12 +32,12 @@ Akku unter 20 %: das Tablet zeigt einen Hinweis (solange das Kit offen ist).
 Der Browser verbindet sich direkt per WebSocket mit dem MQTT-Server.
 
 
-USB
----
-Fuer ein Tablet am Kabel, auch ohne Internet: Bluetooth aus/an, Tastatur erzwingen,
-PIN senden, Bildschirm wecken, Rechte nachruesten. Braucht adb; fehlt es, laedt das
-Kit die Platform-Tools von Google auf Knopfdruck. Am Tablet muss USB-Debugging an
-sein. usb\Notfall.bat macht dasselbe ohne Kit.
+Taster
+------
+taster\puck-taster.js ist ein Programm fuer Puck.js. Der Taster schickt Leertaste
+(kurz) und Enter (lang), meldet sich aber ohne Buchstabentasten an. Android blendet
+die Bildschirmtastatur deshalb nicht mehr aus. Einspielen per Bluetooth ueber
+https://www.espruino.com/ide, Anleitung steht oben in der Datei.
 
 
 Wichtig
@@ -48,9 +48,10 @@ Wichtig
 - WLAN-Passwort und PIN stehen im Klartext im QR. Ausdrucke wie Passwoerter behandeln.
 - Der oeffentliche MQTT-Server (broker.emqx.io) ist zum Testen. Wer den Kanal kennt,
   kann die Tablets steuern. Fuer den Echtbetrieb einen eigenen Server mit Passwort.
-- Ein Bluetooth-Taster gilt fuer Android als Tastatur und blendet die
-  Bildschirmtastatur aus. Der PIN-Bildschirm hat dafuer ein eigenes Ziffernfeld.
-  Fuer Webseiten: "Tastatur erzwingen" oder "Rechte nachruesten" unter USB.
+- Ein Taster, der sich als volle Tastatur anmeldet, blendet die Bildschirmtastatur
+  aus. Der PIN-Bildschirm hat dafuer ein eigenes Ziffernfeld. Fuer alles andere den
+  Taster wie unter "Taster" beschrieben einrichten, oder im Kit unter Tablets
+  Bluetooth kurz ausschalten.
 - Tablet wieder freigeben: unten rechts siebenmal tippen, PIN, unter Sicherheit
   "Device Owner entfernen", danach normal zuruecksetzen.
 

@@ -2,7 +2,7 @@
 // (MQTT over WebSocket), so it needs no Python and no server of its own.
 (function () {
   "use strict";
-  const { $, h, fill, icon, hud, ago, lsGet, lsSet, mqttSettings } = Kit;
+  const { $, h, fill, icon, toggle, hud, ago, lsGet, lsSet, mqttSettings } = Kit;
   const STORE = "fkkit.tablets";
   const STALE_MS = 3 * 60 * 1000;
   const MAX_JSON = 256 * 1024;
@@ -400,9 +400,8 @@
       fill(ui.bt, head, h("div", { class: "group" }, row(h("span", { class: "grow", style: "color:var(--muted)" }, "Braucht die neue FreeKiosk-Version"))));
       return;
     }
-    const sw = h("input", { type: "checkbox", checked: !!bt.enabled, "aria-label": "Bluetooth" });
-    sw.addEventListener("change", () => send(tid, "bt_power", sw.checked ? "ON" : "OFF"));
-    const rows = [h("label", { class: "row" }, h("span", { class: "grow" }, "Bluetooth"), h("span", { class: "switch" }, sw, h("span")))];
+    const rows = [];
+    const power = toggle("Bluetooth", "bluetooth", bt.enabled, (on) => send(tid, "bt_power", on ? "ON" : "OFF"), true);
     if (bt.enabled) {
       for (const d of bt.bonded || []) {
         rows.push(row(
@@ -424,7 +423,7 @@
     }
     const foot = bt.lastError ? h("div", { class: "foot err" }, bt.lastError)
       : bt.pairing ? h("div", { class: "foot" }, "Am Tablet bestätigen, falls gefragt.") : null;
-    fill(ui.bt, head, h("div", { class: "group" }, ...rows), foot);
+    fill(ui.bt, head, h("div", { class: "tgrid" }, power), rows.length ? h("div", { class: "group", style: "margin-top:10px" }, ...rows) : null, foot);
   }
 
   function renderGrid(tid, t) {
@@ -458,11 +457,7 @@
     fill($("sheet-sub"), ...connLine());
     const ws = h("input", { type: "text", value: cfg.ws, placeholder: wsDefault($("mq-broker").value) || "wss://…", spellcheck: "false" });
     ws.addEventListener("input", () => { cfg.ws = ws.value.trim(); lsSet(STORE, cfg); clearTimeout(reconnectTimer); reconnectTimer = setTimeout(connect, 900); });
-    const sw = (prop) => {
-      const el = h("input", { type: "checkbox", checked: !!cfg[prop] });
-      el.addEventListener("change", () => { cfg[prop] = el.checked; lsSet(STORE, cfg); });
-      return h("span", { class: "switch" }, el, h("span"));
-    };
+    const tile = (label, ic, prop) => toggle(label, ic, cfg[prop], (on) => { cfg[prop] = on; lsSet(STORE, cfg); });
     fill($("sheet-body"),
       groupH("Server"),
       h("div", { class: "group" },
@@ -473,9 +468,7 @@
         h("label", { class: "row" }, h("span", { class: "lbl" }, "Passwort"), mirror("t-pass", "mq-pass", "password", "optional"))),
       h("div", { class: "foot" }, "Gilt auch für neue QR-Codes."),
       groupH("Akku"),
-      h("div", { class: "group" },
-        h("label", { class: "row" }, h("span", { class: "grow" }, "Hinweis am Tablet unter 20 %"), sw("batWarn")),
-        h("label", { class: "row" }, h("span", { class: "grow" }, "Hinweis vorlesen"), sw("batTts"))),
+      h("div", { class: "tgrid" }, tile("Hinweis unter 20 %", "bell", "batWarn"), tile("Hinweis vorlesen", "speak", "batTts")),
       h("div", { class: "foot" }, "Nur solange diese Seite offen ist.")
     );
   }
