@@ -25,11 +25,18 @@ Einstellungen. Fuer das naechste Tablet "Naechstes Tablet" (zaehlt den Namen hoc
 
 Tablets
 -------
-Alle Tablets mit demselben Kanal, live: Akku, WLAN, Bildschirm, Bluetooth.
-Antippen fuer Steuerung: neu laden, wecken, Helligkeit, Lautstaerke, Nachricht,
-Vorlesen, Bluetooth-Geraete suchen, koppeln, entfernen, AsTeRICS Grid abfragen.
+Alle Tablets mit demselben Kanal, live: Akku, WLAN, Bildschirm, Bluetooth, Benutzer.
+Ein Tablet antippen, oder mit "Auswaehlen" mehrere auf einmal steuern:
+  - neu laden, wecken, Helligkeit, Lautstaerke, Nachricht, Vorlesen
+  - Start-Seite wechseln (AsTeRICS Grid oder jede andere Adresse)
+  - Bluetooth: ein/aus, suchen, koppeln, entfernen
+  - AsTeRICS Grid: Benutzer wechseln, Online-Konto anmelden, Grid oeffnen,
+    Stimme, Tempo und Tonhoehe, Vorlage aus der AsTeRICS-Bibliothek laden,
+    Sprache, sperren/entsperren, Entsperr-Code, Scanning einschalten
 Akku unter 20 %: das Tablet zeigt einen Hinweis (solange das Kit offen ist).
 Der Browser verbindet sich direkt per WebSocket mit dem MQTT-Server.
+Eigene Grids: am Laptop auf grid.asterics.eu mit einem Online-Konto bearbeiten und
+das Konto im Kit am Tablet anmelden. Aenderungen kommen dann von selbst.
 
 
 Taster

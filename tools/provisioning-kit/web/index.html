@@ -218,7 +218,9 @@ h1 { font-size: 34px; line-height: 1.1; font-weight: 700; letter-spacing: -.02em
   transition: transform .28s cubic-bezier(.32,.72,0,1), visibility 0s linear .28s;
 }
 .sheet.open { transform: none; visibility: visible; box-shadow: -10px 0 40px rgba(0,0,0,.12); transition: transform .28s cubic-bezier(.32,.72,0,1); }
-.sheet-head { position: sticky; top: 0; z-index: 2; background: rgba(245,245,247,.97); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); padding: 16px 16px 12px; display: flex; align-items: center; gap: 12px; }
+.sheet-head { position: sticky; top: 0; z-index: 2; background: rgba(245,245,247,.97); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); padding: 16px 16px 12px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.back { order: -1; flex-basis: 100%; display: inline-flex; align-items: center; gap: 2px; border: 0; background: none; color: var(--blue); font-size: 15px; padding: 0; margin: -4px 0 2px -6px; justify-content: flex-start; }
+.back svg.i { width: 22px; height: 22px; }
 .sheet-head h2 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.01em; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sheet-sub { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 6px; }
 .sheet-body { padding: 4px 16px 40px; }
@@ -246,8 +248,54 @@ details.more > summary svg { width: 16px; height: 16px; transition: transform .2
 details.more[open] > summary svg { transform: rotate(90deg); }
 pre.raw { margin: 0; padding: 12px 16px; font: 12px/1.5 ui-monospace, "SF Mono", Consolas, monospace; white-space: pre-wrap; word-break: break-all; max-height: 320px; overflow: auto; }
 
+/* Rows that navigate */
+button.row { width: 100%; border: 0; background: none; text-align: left; font: inherit; color: inherit; }
+.row.nav { cursor: pointer; }
+.row.nav:hover { background: #fafafc; }
+.row.nav:active { background: var(--fill); }
+.row .chev { width: 16px; height: 16px; color: var(--faint); flex: none; }
+.row .chk { width: 20px; height: 20px; color: var(--blue); flex: none; stroke-width: 2.4; }
+.nav-ic, .row-ic { width: 30px; height: 30px; border-radius: 8px; background: var(--fill); display: grid; place-items: center; color: var(--blue); flex: none; }
+.row-ic { background: none; color: var(--muted); width: auto; }
+.nav-ic svg.i { width: 18px; height: 18px; }
+.row-title { display: block; }
+.row-sub { display: block; color: var(--muted); font-size: 12.5px; margin-top: 1px; }
+.row .val { max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.muted { color: var(--muted); }
+.muted-s { color: var(--faint); font-size: 12px; margin-right: 10px; }
+.head-r { display: inline-flex; align-items: center; }
+.warn-t { color: var(--orange-text); }
+.foot a { color: var(--blue); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.chip { background: var(--card); border-radius: 980px; padding: 4px 11px; font-size: 13px; }
+.btn.primary { background: var(--blue); color: #fff; }
+
+/* Selecting tablets */
+.tcard { position: relative; }
+.tcard.selecting { padding-right: 44px; }
+.selmark { position: absolute; top: 14px; right: 14px; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--faint); display: grid; place-items: center; color: #fff; }
+.selmark svg.i { width: 14px; height: 14px; stroke-width: 3; }
+.tcard.sel { box-shadow: 0 0 0 2.5px var(--blue), var(--shadow); }
+.tcard.sel .selmark { background: var(--blue); border-color: var(--blue); }
+.selbar {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 10px;
+  background: rgba(255,255,255,.92); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+  padding: 8px 8px 8px 18px; border-radius: 980px; box-shadow: 0 8px 30px rgba(0,0,0,.14); max-width: calc(100% - 32px);
+}
+.selcount { font-weight: 600; font-size: 14.5px; white-space: nowrap; }
+
+/* Template gallery */
+.lib-head { display: flex; justify-content: center; margin-bottom: 12px; }
+.libgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.lib { border: 0; background: var(--card); border-radius: 16px; padding: 8px 8px 12px; text-align: left; display: grid; gap: 4px; align-content: start; transition: transform .12s, box-shadow .15s; }
+.lib:hover { box-shadow: 0 6px 20px rgba(0,0,0,.08); }
+.lib:active { transform: scale(.98); }
+.lib img, .lib-ph { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; background: var(--fill); display: grid; place-items: center; color: var(--faint); }
+.lib b { font-size: 13.5px; font-weight: 600; line-height: 1.25; margin-top: 4px; padding: 0 4px; }
+.lib small { color: var(--muted); font-size: 12px; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* HUD */
-.hud { position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 20px); background: rgba(29,29,31,.92); color: #fff; padding: 10px 18px; border-radius: 980px; font-size: 14px; z-index: 80; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; display: flex; gap: 8px; align-items: center; }
+.hud { position: fixed; left: 50%; bottom: 84px; transform: translate(-50%, 20px); background: rgba(29,29,31,.92); color: #fff; padding: 10px 18px; border-radius: 980px; font-size: 14px; z-index: 80; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; display: flex; gap: 8px; align-items: center; }
 .hud.show { opacity: 1; transform: translate(-50%, 0); }
 .hud svg.i { width: 17px; height: 17px; }
 
@@ -399,16 +447,19 @@ pre.raw { margin: 0; padding: 12px 16px; font: 12px/1.5 ui-monospace, "SF Mono",
   <div class="title-row">
     <div><h1>Tablets</h1><p class="sub" id="t-sub">…</p></div>
     <div class="toolbar">
+      <button type="button" class="btn light sm" id="t-select" hidden>Auswählen</button>
       <button type="button" class="icon-btn" id="t-settings" title="Verbindung" aria-label="Verbindung"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button>
     </div>
   </div>
   <div class="summary" id="t-summary"></div>
   <div class="cards" id="t-cards"></div>
+  <div class="selbar" id="t-selbar" hidden></div>
 </main>
 
 <div class="scrim" id="scrim"></div>
 <aside class="sheet" id="sheet" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
   <div class="sheet-head">
+    <button type="button" class="back" id="sheet-back" hidden aria-label="Zurück"><svg class="i" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg><span id="sheet-back-label"></span></button>
     <div style="flex:1;min-width:0"><h2 id="sheet-title"></h2><div class="sheet-sub" id="sheet-sub"></div></div>
     <button type="button" class="icon-btn" id="sheet-close" aria-label="Schließen"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   </div>

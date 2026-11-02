@@ -743,6 +743,27 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
           setWebViewKey(prev => prev + 1);
           // Persist to storage so Settings shows updated value
           await StorageService.saveUrl(newUrl);
+          // A remote "open this page" is an admin decision. With a whitelist active only
+          // the start page itself would load and every link inside the new site would be
+          // blocked, so the new site's origin joins the whitelist.
+          try {
+            const origin = newUrl.match(/^(https?:\/\/[^/?#]+)/i)?.[1];
+            if (origin) {
+              const [filterOn, filterMode, filterList] = await Promise.all([
+                StorageService.getUrlFilterEnabled(),
+                StorageService.getUrlFilterMode(),
+                StorageService.getUrlFilterList(),
+              ]);
+              const pattern = `${origin}/*`;
+              if (filterOn && filterMode === 'whitelist' && !filterList.includes(pattern)) {
+                const nextList = [...filterList, pattern];
+                await StorageService.saveUrlFilterList(nextList);
+                setUrlFilterList(nextList);
+              }
+            }
+          } catch (e) {
+            console.warn('[API] Could not extend the URL whitelist:', e);
+          }
           console.log('[API] URL set to', newUrl);
         },
         onTts: (text: string) => {
