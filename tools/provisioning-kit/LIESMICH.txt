@@ -34,22 +34,31 @@ Schluessel (Tablets > Regler-Symbol > Schluessel, kopieren und einfuegen).
 
 Tablets
 -------
-Alle Tablets mit demselben Kanal, live: Akku, WLAN, Bildschirm, Bluetooth, Benutzer.
-Ein Tablet antippen, oder mit "Auswaehlen" mehrere auf einmal steuern:
+Alle Tablets mit demselben Kanal, live: Akku, WLAN-Name, Bildschirm, Bluetooth,
+Benutzer. Ein Tablet antippen, oder mit "Auswaehlen" mehrere auf einmal steuern:
   - Foto und Name: Bild der Person oder eine Farbe, bleibt nur in diesem Browser
-  - neu laden, wecken, Helligkeit, Lautstaerke, Nachricht, Vorlesen
-  - Start-Seite: Schnellauswahl (AsTeRICS Grid, inDiKo, YouTube, Classroom, ANTON,
-    Klexikon, ARASAAC, Scratch) oder jede andere Adresse. Ist "Nur Start-Seite" an,
-    wird die neue Seite samt Unterseiten freigegeben.
+  - neu laden, wecken (Bildschirm an), Helligkeit, Lautstaerke, Nachricht, Vorlesen
+  - Bildschirmfoto: der Bildschirm des Tablets gross neben dem Menue. Er erneuert
+    sich nach jedem Befehl und alle 30 Sekunden. Das Bild wird danach vom
+    MQTT-Server geloescht.
+  - Offene Seite: zeigt, was wirklich offen ist, und die Start-Seite. Schnellauswahl
+    (AsTeRICS Grid, inDiKo, YouTube, Classroom, ANTON, Klexikon, ARASAAC, Scratch)
+    oder jede andere Adresse. Ist "Nur Start-Seite" an, wird die neue Seite samt
+    Unterseiten freigegeben.
   - AsTeRICS Grid: Benutzer wechseln, Online-Konto anmelden, Grid oeffnen, Stimme,
-    Tempo und Tonhoehe, Vorlage aus der AsTeRICS-Bibliothek, Sprache, sperren und
-    entsperren, Entsperr-Code
-  - Bedienung: Scanning ein und aus, automatisch weiter, Tempo, Tasten zuruecksetzen
+    Tempo und Tonhoehe, Vorlage aus der AsTeRICS-Bibliothek, Sprache (App und Grid
+    zusammen), sperren und entsperren, Entsperr-Code
+  - Bedienung: Scanning ein und aus, Tasten zuruecksetzen
   - Offline-Stimmen: Liste aller Stimmen (sherpa-onnx), laden, wechseln, entfernen.
-    Danach in AsTeRICS unter "Stimme" auswaehlen.
+    Danach in AsTeRICS unter "Stimme" auswaehlen. Fuer Samsung- und Google-Stimmen
+    oeffnet "Am Tablet oeffnen" deren Download-Seite, dort am Tablet die Sprache
+    laden; danach geht sie ohne Internet.
   - WLANs: gespeicherte WLANs sehen, hinzufuegen, entfernen
   - Bluetooth: ein/aus, suchen, koppeln, entfernen
 Akku unter 20 %: das Tablet zeigt einen Hinweis (solange das Kit offen ist).
+"Akku-Optimierung ist an": Android darf FreeKiosk schlafen legen, dann kommen
+Befehle nicht an. Nach dem Einrichten fragt FreeKiosk einmal, bitte "Zulassen"
+tippen. Spaeter: im Kit "Am Tablet fragen" und am Tablet "Zulassen".
 Der Browser verbindet sich direkt per WebSocket mit dem MQTT-Server.
 
 
@@ -57,6 +66,8 @@ Grid erstellen
 --------------
 Kalender: Tages-, Wochen- und Monatsplaene mit ARASAAC-Symbolen bauen und mit
 "An Tablets senden" direkt in AsTeRICS Grid laden. Vorhandene Grids bleiben.
+Jedes Tablet meldet sich, dann schickt das Kit die Datei gepackt in kleinen Teilen.
+Dafuer muss das Kit-Fenster offen bleiben, bis "importiert" erscheint.
 Eigene Dateien (.grd aus AsTeRICS, .obf/.obz aus anderen Programmen) einfach in das
 Feld ziehen und an Tablets senden. Auf dem Tablet muss AsTeRICS Grid offen sein.
 Dazu Links zu Werkzeugen rund um AsTeRICS (ARASAAC, Global Symbols, OpenSymbols).
@@ -104,6 +115,18 @@ Laptop und Tablet muessen im selben WLAN sein. Das Recht bleibt, bis die App
 entfernt wird.
 
 
+Testen ohne Zuruecksetzen
+-------------------------
+Kit: Start.bat direkt aus dem Repo (tools\provisioning-kit) starten, eine APK aus
+einem Release daneben legen. Nach jeder Aenderung im Browser F5.
+App: tools\dev\Test-Tablet.bat baut FreeKiosk am Laptop und spielt es per
+WLAN-Debugging als Update aufs Tablet (Device Owner und Einstellungen bleiben).
+Einmalig noetig: Android Studio und Node 20.
+Neue Einstellungen aus dem QR (PIN, WLANs, Kit-Schluessel) gehen auch so:
+  adb shell am start -n com.freekiosk/.MainActivity --es pin 1234 --es mqtt_admin_key KEY
+(KEY: im Kit unter Tablets > Regler-Symbol > Schluessel kopieren.)
+
+
 Wichtig
 -------
 - Kommt die App vom Laptop, muessen Laptop und Tablets im selben WLAN sein. Viele
@@ -115,8 +138,11 @@ Wichtig
   sieht die Tablets und kann einfache Befehle schicken. Installieren und WLANs
   speichern geht nur mit dem Kit-Schluessel. Fuer den Echtbetrieb einen eigenen
   Server mit Passwort.
-- Gesendete Grid-Dateien liegen kurz (4 Minuten) auf dem MQTT-Server. Keine Fotos
-  oder Namen von Personen ueber einen oeffentlichen Server schicken.
+- Grid-Dateien und Bildschirmfotos gehen ueber den MQTT-Server und bleiben dort nicht
+  liegen. Trotzdem keine Fotos oder Namen von Personen ueber einen oeffentlichen
+  Server schicken.
+- Fuer den WLAN-Namen im Kit schaltet FreeKiosk den Standort am Tablet ein (Android
+  zeigt den Namen sonst nicht). FreeKiosk verwendet den Standort fuer nichts anderes.
 - Ein Taster, der sich als volle Tastatur anmeldet, blendet die Bildschirmtastatur
   aus. Der PIN-Bildschirm hat dafuer ein eigenes Ziffernfeld. Abhilfe: Puck.js-Taster
   (siehe Taster) oder WLAN-Debugging (siehe oben).
@@ -137,6 +163,9 @@ Fehlersuche
 - "Unterschrift passt nicht": anderer Laptop mit anderem Kit-Schluessel.
 - "Befehl abgelaufen": Uhrzeit von Laptop und Tablet vergleichen.
 - Stimme geladen, AsTeRICS zeigt sie nicht: Tablet neu starten.
+- Grid senden: "Tablet erreicht den MQTT-Server nicht" heisst, AsTeRICS am Tablet
+  kommt nicht an den wss://-Server. "Keine Antwort vom Kit": Kit-Fenster war zu.
+- Bildschirmfoto bleibt leer: Bildschirm ist aus, erst wecken.
 
 
 Lizenzen

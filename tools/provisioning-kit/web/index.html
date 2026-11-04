@@ -240,7 +240,8 @@ h1 { font-size: 34px; line-height: 1.1; font-weight: 700; letter-spacing: -.02em
 .stat { background: var(--card); border-radius: 14px; padding: 12px; display: grid; gap: 2px; }
 .stat small { color: var(--muted); font-size: 12px; }
 .stat strong { font-size: 18px; font-weight: 600; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.actions { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 8px; }
+@media (max-width: 520px) { .actions { grid-template-columns: repeat(3, 1fr); } }
 .act { border: 0; background: var(--card); border-radius: 14px; padding: 12px 4px 10px; display: grid; justify-items: center; gap: 6px; font-size: 12px; color: var(--text); }
 .act:hover { background: #fbfbfd; }
 .act svg.i { width: 22px; height: 22px; color: var(--blue); }
@@ -354,6 +355,28 @@ button.row { width: 100%; border: 0; background: none; text-align: left; font: i
 .pick { display: grid; gap: 8px; }
 .pick-row { display: flex; align-items: center; gap: 10px; }
 .lang-sel { border: 0; background: var(--card); color: var(--blue); font-weight: 500; padding: 5px 10px; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+.ssid .t, .stat strong.ssid { display: inline-block; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.stat strong.ssid { display: block; max-width: 100%; }
+/* Screen of a tablet, big in the free space next to the sheet while you work in it */
+.shotpanel {
+  position: fixed; z-index: 45; top: 50%; left: calc((100vw - 460px) / 2); transform: translate(-50%, -50%);
+  width: min(760px, calc(100vw - 460px - 64px)); background: var(--card); border-radius: 22px;
+  box-shadow: 0 24px 70px rgba(0,0,0,.28); padding: 12px; display: grid; gap: 10px;
+}
+.shotpanel[hidden] { display: none; }
+.shotpanel-head { display: flex; align-items: center; gap: 10px; padding: 2px 4px 0; }
+.shotpanel-head b { font-weight: 600; }
+.shotpanel-head small { display: block; color: var(--muted); font-size: 12.5px; }
+.shotpanel-body { position: relative; min-height: 200px; border-radius: 14px; background: #0b0b0c; display: grid; place-items: center; overflow: hidden; }
+.shotpanel-body img { display: block; width: 100%; max-height: calc(100vh - 170px); object-fit: contain; }
+.shotpanel-body .spin { position: absolute; top: 12px; right: 12px; }
+.shotpanel-body p { color: #d1d1d6; margin: 24px; text-align: center; max-width: 40ch; }
+@media (max-width: 899px) { .shotpanel { display: none !important; } }
+img.shot { display: block; width: 100%; max-height: 70vh; object-fit: contain; border-radius: 14px; background: #000; box-shadow: 0 2px 10px rgba(0,0,0,.12); }
+.notice { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 12px 14px; border-radius: 14px; background: #fff6e5; color: #6b4a00; }
+.notice b { display: block; font-weight: 600; font-size: 14px; }
+.notice small { display: block; font-size: 12.5px; color: #8a6a1f; }
+.notice .btn { flex: none; }
 .chk-empty { width: 18px; height: 18px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--fill2); flex: none; }
 .row.nav[aria-pressed="true"] { background: var(--blue-soft); }
 .chip .avatar.sm { width: 20px; height: 20px; font-size: 9px; margin: -2px 6px -2px -6px; vertical-align: middle; display: inline-grid; }
@@ -533,6 +556,7 @@ button.row { width: 100%; border: 0; background: none; text-align: left; font: i
 </main>
 
 <div class="scrim" id="scrim"></div>
+<section class="shotpanel" id="shotpanel" hidden aria-label="Bildschirm des Tablets"></section>
 <aside class="sheet" id="sheet" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
   <div class="sheet-head">
     <button type="button" class="back" id="sheet-back" hidden aria-label="Zurück"><svg class="i" data-ic="back"></svg><span id="sheet-back-label"></span></button>

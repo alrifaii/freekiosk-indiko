@@ -156,6 +156,7 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
     // ==================== JS status variables (same as HttpServerModule) ====================
 
     private var jsCurrentUrl: String = ""
+    private var jsStartUrl: String = ""
     private var jsCanGoBack: Boolean = false
     private var jsLoading: Boolean = false
     private var jsBrightness: Int = 50
@@ -436,6 +437,7 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
                     "ttsInstall" -> ttsPackages.install(params)
                     "ttsUninstall" -> ttsPackages.uninstall(params)
                     "ttsEngine" -> ttsPackages.useEngine(params)
+                    "ttsVoiceData" -> ttsPackages.openVoiceData(params)
                     "wifiAdd" -> wifiNets.add(params)
                     "wifiRemove" -> wifiNets.remove(params)
                     "setMode" -> {
@@ -557,6 +559,7 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
         try {
             val status = JSONObject(statusJson)
             if (status.has("currentUrl")) jsCurrentUrl = status.getString("currentUrl")
+            if (status.has("startUrl")) jsStartUrl = status.getString("startUrl")
             if (status.has("canGoBack")) jsCanGoBack = status.getBoolean("canGoBack")
             if (status.has("loading")) jsLoading = status.getBoolean("loading")
             if (status.has("brightness")) jsBrightness = status.getInt("brightness")
@@ -761,6 +764,7 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
         // WebView
         val webviewStatus = JSONObject().apply {
             put("currentUrl", jsCurrentUrl)
+            put("startUrl", jsStartUrl)
             put("canGoBack", jsCanGoBack)
             put("loading", jsLoading)
             put("motionDetected", jsMotionDetected)
@@ -784,6 +788,11 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
             put("deviceName", Build.DEVICE)
             put("product", Build.PRODUCT)
             put("uptime", android.os.SystemClock.elapsedRealtime() / 1000) // seconds
+            // false: Android may put FreeKiosk to sleep, network included (missed commands)
+            put("batteryExempt", try {
+                (reactContext.getSystemService(Context.POWER_SERVICE) as PowerManager)
+                    .isIgnoringBatteryOptimizations(reactContext.packageName)
+            } catch (_: Exception) { false })
         }
         status.put("device", deviceStatus)
 
@@ -924,7 +933,17 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
                 wifiManager.connectionInfo
             }
 
-            val ssid = getSsidSafe(wifiInfoObj?.ssid)
+            // Android 12+ hides the network name in transportInfo from a plain query;
+            // the older WifiManager call still returns it with location access, which a
+            // Device Owner can give itself (WifiNetworksBridge.ensureSsidAccess)
+            WifiNetworksBridge.ensureSsidAccess(reactContext.applicationContext)
+            var ssid = getSsidSafe(wifiInfoObj?.ssid)
+            if (ssid.startsWith("WiFi") && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val wifiManager = reactContext.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                @Suppress("DEPRECATION")
+                val legacy = getSsidSafe(wifiManager.connectionInfo?.ssid)
+                if (!legacy.startsWith("WiFi")) ssid = legacy
+            }
             val rssi = wifiInfoObj?.rssi ?: -100
             val signalLevel = WifiManager.calculateSignalLevel(rssi, 100)
 

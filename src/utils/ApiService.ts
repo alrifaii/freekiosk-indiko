@@ -67,7 +67,10 @@ export interface ActionResult {
 export type MqttImageStream = 'screenshot' | 'camera';
 
 export interface AppStatus {
+  /** The page the WebView shows right now (follows links and redirects) */
   currentUrl: string;
+  /** The configured start page */
+  startUrl?: string;
   canGoBack: boolean;
   loading: boolean;
   brightness: number;
@@ -382,6 +385,11 @@ class ApiServiceClass {
       case 'wake':
         if (!cb.onWake) return fail('Handler unavailable');
         cb.onWake();
+        return ok();
+
+      case 'requestBatteryExemption':
+        // The dialog needs one tap on the tablet; KioskModule lets it through lock task
+        NativeModules.KioskModule?.requestIgnoreBatteryOptimizations?.().catch(() => {});
         return ok();
 
       case 'reload':

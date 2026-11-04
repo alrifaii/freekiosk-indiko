@@ -53,11 +53,75 @@
       scheduleRender();
     });
     client.on("message", onMessage);
-    client.subscribe([`${s.base}/+/availability`, `${s.base}/+/state`, `${s.base}/+/page`]);
+    client.subscribe([`${s.base}/+/availability`, `${s.base}/+/state`, `${s.base}/+/page`, `${s.base}/+/image/screenshot`, ...listeners.keys()]);
     client.connect();
   }
   let reconnectTimer = null;
   Kit.onChange(() => { clearTimeout(reconnectTimer); reconnectTimer = setTimeout(connect, 900); });
+
+  // Screenshots: FreeKiosk publishes them retained. The kit shows a fresh one and then
+  // clears it from the server, so no picture of the screen stays there.
+  function onScreenshot(tid, topic, payload, retained) {
+    if (!payload.length) return;
+    if (client) client.publish(topic, new Uint8Array(0), { retain: true });
+    if (retained) return;
+    const t = tablet(tid);
+    if (t.shot) URL.revokeObjectURL(t.shot.url);
+    t.shot = { url: URL.createObjectURL(new Blob([payload], { type: "image/jpeg" })), at: Date.now(), kb: Math.round(payload.length / 1024) };
+    t.shotWait = 0;
+    scheduleRender();
+  }
+  // The screen next to the sheet: opens with "Bildschirmfoto", follows every command
+  // sent to that tablet and refreshes itself while open.
+  const shotView = { tid: null, timer: 0, every: 0 };
+  function showShot(tid) {
+    if (window.innerWidth < 900) { push(screenshotPage(tid)); return; }
+    shotView.tid = tid;
+    $("shotpanel").hidden = false;
+    clearInterval(shotView.every);
+    shotView.every = setInterval(() => { if (shotView.tid && !document.hidden) requestShot(shotView.tid); }, 30000);
+    requestShot(tid);
+  }
+  function hideShot() {
+    shotView.tid = null;
+    clearTimeout(shotView.timer);
+    clearInterval(shotView.every);
+    $("shotpanel").hidden = true;
+  }
+  function afterAction(tid, delay) {
+    if (shotView.tid !== tid) return;
+    clearTimeout(shotView.timer);
+    shotView.timer = setTimeout(() => { if (shotView.tid === tid) requestShot(tid); }, delay);
+  }
+  function renderShot() {
+    const tid = shotView.tid;
+    if (!tid) return;
+    const panel = $("shotpanel");
+    const t = tablets.get(tid) || {};
+    const enabled = g(t, "state.images.screenshotEnabled");
+    const waiting = t.shotWait && Date.now() - t.shotWait < 15000;
+    const late = t.shotWait && !waiting;
+    const key = JSON.stringify([tid, t.shot && t.shot.at, !!waiting, !!late, enabled, Math.floor(Date.now() / 10000)]);
+    if (same(panel, key)) return;
+    const note = enabled !== true && (late || !t.shot) ? "Bildschirmfotos sind auf diesem Tablet aus. Mit einem neuen QR-Code einrichten oder in FreeKiosk unter MQTT einschalten."
+      : late && !t.shot ? "Kein Bild gekommen. Ist der Bildschirm aus? Erst wecken." : "";
+    fill(panel,
+      h("div", { class: "shotpanel-head" }, avatarEl(tid, "sm"),
+        h("span", { class: "grow" }, h("b", {}, displayName(tid)),
+          h("small", {}, waiting ? "Bild wird geholt …" : t.shot ? `Bildschirm · ${ago(t.shot.at)}` : "Bildschirm")),
+        h("button", { type: "button", class: "icon-btn", title: "Neu aufnehmen", "aria-label": "Neu aufnehmen", onclick: () => requestShot(tid) }, icon("refresh")),
+        h("button", { type: "button", class: "icon-btn", title: "Schließen", "aria-label": "Schließen", onclick: hideShot }, icon("x"))),
+      h("div", { class: "shotpanel-body" },
+        t.shot ? h("img", { src: t.shot.url, alt: "Bildschirm von " + displayName(tid) }) : null,
+        note ? h("p", {}, note) : null,
+        waiting ? h("span", { class: "spin" }) : null));
+  }
+
+  function requestShot(tid) {
+    const t = tablet(tid);
+    if (send(tid, "screenshot_capture", "", true)) t.shotWait = Date.now();
+    scheduleRender();
+  }
 
   function tablet(tid) {
     let t = tablets.get(tid);
@@ -65,7 +129,17 @@
     return t;
   }
 
+  // Other parts of the kit (Grid erstellen) listen on topics of their own
+  const listeners = new Map();
+  function listen(topic, fn) {
+    listeners.set(topic, fn);
+    if (client) client.subscribe([topic]);
+    return () => listeners.delete(topic);
+  }
+
   function onMessage(topic, payload, retained) {
+    const own = listeners.get(topic);
+    if (own) return own(topic, payload, retained);
     const base = settings().base + "/";
     if (!topic.startsWith(base)) return;
     const rest = topic.slice(base.length);
@@ -73,6 +147,7 @@
     if (cut <= 0) return;
     const tid = rest.slice(0, cut);
     const kind = rest.slice(cut + 1);
+    if (kind === "image/screenshot") return onScreenshot(tid, topic, payload, retained);
     if (kind !== "availability" && kind !== "state" && kind !== "page") return;
     if (payload.length > MAX_JSON) return;
     const text = td.decode(payload);
@@ -101,6 +176,7 @@
     if (!client || client.state !== "online") { hud("Keine Verbindung", "bad"); return false; }
     client.publish(`${settings().base}/${tid}/set/${cmd}`, payload == null ? "" : String(payload));
     if (!quiet) hud("Gesendet");
+    if (cmd !== "screenshot_capture") afterAction(tid, cmd === "execute_js" ? 4000 : 2500);
     return true;
   }
   function sendAll(tids, cmd, payload, label) {
@@ -108,6 +184,13 @@
     tids.forEach((tid) => send(tid, cmd, payload, true));
     hud(label || (tids.length > 1 ? `An ${tids.length} Tablets gesendet` : "Gesendet"));
     return true;
+  }
+
+  // The network name. Older FreeKiosk versions send "WiFi (no permission)" when Android
+  // hides it; that is no name.
+  function ssidOf(s) {
+    const n = String(g(s || {}, "wifi.ssid") || "").trim();
+    return !n || /^WiFi( \(.*\))?$/.test(n) || n === "<unknown ssid>" ? "" : n;
   }
 
   // ---------------------------------------------------------------- battery notices
@@ -188,7 +271,7 @@
       var online = S ? tryf(function () { return S.getSavedOnlineUsers(); }, []) : [];
       var local = S ? tryf(function () { return S.getSavedLocalUsers(); }, []) : [];
       return {
-        ts: Date.now(), hash: location.hash, host: location.host, path: location.pathname, title: document.title,
+        ts: Date.now(), hash: location.hash, host: location.host, path: location.pathname, title: document.title, href: location.href,
         api: !!S,
         user: (S && tryf(function () { return S.getAutologinUser() || S.getLastActiveUser(); }, "")) || lsGet("AUTOLOGIN_USER_KEY") || lsGet("LAST_ACTIVEUSER_KEY") || "",
         users: online.map(function (u) { return { name: u, online: true }; }).concat(local.map(function (u) { return { name: u, online: false }; })),
@@ -197,6 +280,7 @@
         locked: us && us.metadata && "locked" in us.metadata ? !!us.metadata.locked : null,
         template: (us && us.originGridsetFilename) || "",
         input: inputSnap(),
+        contentLang: (us && us.contentLang) || "",
         app: app ? { lang: app.appLang || "", sync: !!app.syncNavigation, passcode: !!app.unlockPasscode, speechUrl: app.externalSpeechServiceUrl || "" } : null,
         speech: !!window.speechSynthesis, browserLang: navigator.language,
         voices: voices ? Array.prototype.map.call(voices, function (x) {
@@ -250,18 +334,29 @@
       return { scan: !!ic.scanEnabled, scanAuto: !!ic.scanAuto, scanTimeoutMs: ic.scanTimeoutMs || 1000,
         dir: !!ic.dirEnabled, huff: !!ic.huffEnabled, seq: !!ic.seqEnabled, mouse: ic.mouseclickEnabled !== false };
     }
-    // Fetch one retained message (a grid file the kit put there) over a short MQTT connection.
-    function fetchRetained(topic, cb) {
-      var ws, done = false, buf = new Uint8Array(0);
-      var end = function (data) { if (done) return; done = true; try { ws.send(new Uint8Array([0xe0, 0])); ws.close(); } catch (e) {} cb(data); };
-      try { ws = new WebSocket(CFG.ws, ["mqtt"]); } catch (e) { return cb(null); }
+    // Receive a file from the kit over a short MQTT connection of its own: subscribe,
+    // say "ready", collect the pieces. Nothing is kept on the server (no retained
+    // message), and small pieces pass every broker's size limit.
+    function receiveFile(topic, n, cb) {
+      var ws, done = false, buf = new Uint8Array(0), parts = [], got = 0, timer = null;
+      var end = function (data, why) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        try { ws.send(new Uint8Array([0xe0, 0])); ws.close(); } catch (e) {}
+        cb(data, why);
+      };
+      var wait = function (ms, why) { clearTimeout(timer); timer = setTimeout(function () { end(null, why()); }, ms); };
+      try { ws = new WebSocket(CFG.ws, ["mqtt"]); } catch (e) { return cb(null, "Tablet erreicht den MQTT-Server nicht"); }
       ws.binaryType = "arraybuffer";
+      wait(15000, function () { return "Tablet erreicht den MQTT-Server nicht"; });
       ws.onopen = function () {
-        var flags = 0x02, payload = [mstr(CFG.cid + "r")];
+        var flags = 0x02, payload = [mstr(CFG.cid + "f")];
         if (CFG.user) { flags |= 0x80; payload.push(mstr(CFG.user)); }
         if (CFG.pass) { flags |= 0x40; payload.push(mstr(CFG.pass)); }
         ws.send(packet(0x10, cat([mstr("MQTT"), new Uint8Array([4, flags, 0, 60])].concat(payload))));
       };
+      ws.onclose = function () { end(null, got ? "Verbindung brach ab (" + got + " von " + n + " Teilen)" : "Verbindung zum MQTT-Server brach ab"); };
       ws.onmessage = function (ev) {
         buf = cat([buf, new Uint8Array(ev.data)]);
         for (;;) {
@@ -272,18 +367,31 @@
           var hdr = buf[0], type = hdr >> 4, body = buf.slice(i, i + len);
           buf = buf.slice(i + len);
           if (type === 2) {
-            if (body[1] !== 0) return end(null);
-            ws.send(packet(0x82, cat([new Uint8Array([0, 1]), mstr(topic), new Uint8Array([0])])));
+            if (body[1] !== 0) return end(null, "MQTT-Server lehnt die Anmeldung ab (Code " + body[1] + ")");
+            ws.send(packet(0x82, cat([new Uint8Array([0, 1]), mstr(topic + "/c/+"), new Uint8Array([0])])));
+          } else if (type === 9) {
+            // Subscribed: now the kit may send
+            ws.send(packet(0x30, cat([mstr(topic + "/ready"), te.encode(CFG.cid)])));
+            wait(60000, function () { return got ? "Datei kam nicht ganz an (" + got + " von " + n + " Teilen)" : "Keine Antwort vom Kit (Kit-Fenster offen?)"; });
           } else if (type === 3) {
             var tl = (body[0] << 8) | body[1];
             var t = new TextDecoder().decode(body.subarray(2, 2 + tl));
             var p = 2 + tl + (((hdr >> 1) & 3) ? 2 : 0);
-            if (t === topic) return end(body.slice(p));
+            var k = t.indexOf(topic + "/c/") === 0 ? parseInt(t.slice(topic.length + 3), 10) : -1;
+            if (k >= 0 && k < n && !parts[k]) {
+              parts[k] = body.slice(p);
+              got++;
+              wait(30000, function () { return "Datei kam nicht ganz an (" + got + " von " + n + " Teilen)"; });
+              if (got === n) return end(cat(parts));
+            }
           }
         }
       };
-      ws.onerror = function () {};
-      setTimeout(function () { end(null); }, 30000);
+    }
+    function gunzip(bytes, cb) {
+      if (!window.DecompressionStream) return cb(null, "Browser am Tablet zu alt zum Entpacken");
+      new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer()
+        .then(function (b) { cb(new Uint8Array(b)); }, function () { cb(null, "Datei beschädigt angekommen"); });
     }
 
     var a = CFG.action, x = CFG.args || {};
@@ -337,10 +445,14 @@
       });
     }
     if (a === "import") {
-      // A grid file (.grd, .obf, .obz) waits as a retained message; import it like
-      // "Import custom data from file": keeps existing grids and the user's settings.
-      return fetchRetained(x.topic, function (bytes) {
-        if (!bytes || !bytes.length) return finish(res(false, "Datei nicht angekommen"));
+      // A grid file (.grd, .obf, .obz) from the kit, in pieces and maybe gzipped; import it
+      // like "Import custom data from file": keeps existing grids and the user's settings.
+      return receiveFile(x.topic, x.n || 1, function (packed, why) {
+        if (!packed) return finish(res(false, why || "Datei nicht angekommen"));
+        if (x.gz) return gunzip(packed, function (b, why2) { if (!b) return finish(res(false, why2)); importBytes(b); });
+        importBytes(packed);
+      });
+      function importBytes(bytes) {
         location.hash = "#grids";
         waitFor(function () { return findVm(function (v) { return v.importModal && typeof v.reload === "function"; }); }, 12000, function (mg) {
           if (!mg) return finish(res(false, "Grid-Verwaltung nicht gefunden"));
@@ -372,7 +484,7 @@
             });
           });
         });
-      });
+      }
     }
     if (a === "unlock") {
       var app0 = tryf(function () { return S.getAppSettings(); }, {});
@@ -413,6 +525,13 @@
       if ("sync" in x) patch.syncNavigation = !!x.sync;
       if ("passcode" in x) patch.unlockPasscode = x.passcode || null;
       S.saveAppSettings(patch);
+      // The grid's own language (labels, voice) is a user setting of its own; one
+      // choice in the kit sets both
+      if ("lang" in x) tryf(function () {
+        var prev = (S.getUserSettings() || {}).contentLang;
+        S.saveUserSettings({ contentLang: x.lang || undefined, lastContentLang: prev });
+        return 1;
+      }, 0);
       finish(res(true));
       if ("lang" in x) reloadTo(null);
       return;
@@ -497,6 +616,7 @@
     setTimeout(() => agent([tid], "", null, { quiet: true }), 1200);
   }
   function reportResult(tid, r) {
+    afterAction(tid, 1500);
     const p = pending.get(r.id);
     if (r.ok) {
       if (!p || !p.shown) hud(r.msg || (p && p.label) || "Erledigt");
@@ -710,6 +830,7 @@
   }
 
   function render() {
+    renderShot();
     fill($("t-sub"), ...connLine());
     const entries = visibleEntries();
     for (const tid of [...selected]) if (!tablets.has(tid)) selected.delete(tid);
@@ -766,7 +887,7 @@
           h("span", { class: "tcard-sub" }, h("span", { class: "dot " + dot }), prof(tid).name ? tid : st === "on" && t.seen ? `${label} · ${ago(t.seen)}` : label))),
       h("div", { class: "tcard-meta" },
         battery(s),
-        Number.isFinite(sig) && g(s, "wifi.connected") !== false ? h("span", { title: g(s, "wifi.ssid") || "" }, icon("wifi"), `${sig} %`) : null,
+        Number.isFinite(sig) && g(s, "wifi.connected") !== false ? h("span", { class: "ssid", title: `Empfang ${sig} %` }, icon("wifi"), h("span", { class: "t" }, ssidOf(s) || `${sig} %`)) : null,
         g(s, "screen.on") === false ? h("span", { title: "Bildschirm aus" }, icon("moon")) : null,
         btOn ? h("span", { title: "Bluetooth-Gerät verbunden" }, icon("bluetooth"), String(btOn)) : null),
       p && p.user ? h("div", { class: "tcard-meta" }, h("span", { title: "AsTeRICS-Benutzer" }, icon("ag:users"), p.user), p.hash ? h("span", {}, icon("ag:th-large"), gridName(p.hash)) : null) : null,
@@ -792,6 +913,7 @@
   // parts that change when new state arrives.
   let stack = [];
   function openSheet(page) {
+    hideShot();
     stack = [page];
     $("sheet").classList.add("open");
     $("sheet").setAttribute("aria-hidden", "false");
@@ -801,6 +923,7 @@
   function push(page) { stack.push(page); showPage(); }
   function pop() { if (stack.length > 1) { stack.pop(); showPage(); } }
   function closeSheet() {
+    hideShot();
     stack = [];
     $("sheet").classList.remove("open");
     $("sheet").setAttribute("aria-hidden", "true");
@@ -872,6 +995,7 @@
         ui.stats = h("div", { class: "stats" });
         ui.tts = h("div", {});
         ui.net = h("div", {});
+        ui.doze = h("div", {});
         ui.bright = slider("sun", "Helligkeit", (v) => send(tid, "brightness", v));
         ui.vol = slider("volume", "Lautstärke", (v) => send(tid, "volume", v));
         ui.page = h("div", { class: "group" });
@@ -884,12 +1008,14 @@
             h("button", { type: "button", class: "avatar-btn", title: "Foto und Name", "aria-label": "Foto und Name", onclick: () => push(profilePage(tid)) },
               avatarEl(tid, "lg"), icon("camera", "cam"))),
           ui.stats,
+          ui.doze,
           groupH("Steuern"),
           h("div", { class: "actions" },
             act("refresh", "Neu laden", () => send(tid, "reload")),
-            act("eye", "Wecken", () => send(tid, "wake")),
+            act("eye", "Wecken", () => { if (send(tid, "screen", "ON", true)) { send(tid, "wake", "", true); hud("Wird geweckt"); } }),
             act("moon", "Bildschirm aus", () => send(tid, "screen", "OFF")),
             act("bell", "Piepen", () => send(tid, "audio_beep")),
+            act("screen", "Bildschirm­foto", () => (shotView.tid === tid ? requestShot(tid) : showShot(tid))),
             act("power", "Neustart", () => { if (confirm(`${tid} neu starten?`)) send(tid, "reboot"); }, "danger")),
           h("div", { class: "group", style: "margin-top:10px" }, ui.bright.el, ui.vol.el),
           groupH("Nachricht"),
@@ -912,12 +1038,17 @@
         const sig = g(s, "wifi.signalLevel");
         fill(ui.stats,
           h("div", { class: "stat" }, h("small", {}, "Akku"), h("strong", {}, lvl != null ? `${lvl} %${g(s, "battery.charging") ? " ⚡" : ""}` : "–")),
-          h("div", { class: "stat" }, h("small", {}, "WLAN"), h("strong", { title: g(s, "wifi.ssid") || "" }, sig != null ? `${sig} %` : "–")),
+          h("div", { class: "stat" }, h("small", {}, sig != null ? `WLAN · ${sig} %` : "WLAN"), h("strong", { class: "ssid", title: ssidOf(s) || "" }, ssidOf(s) || (sig != null ? "Name unbekannt" : "–"))),
           h("div", { class: "stat" }, h("small", {}, "Bildschirm"), h("strong", {}, g(s, "screen.on") === true ? "an" : g(s, "screen.on") === false ? "aus" : "–")));
+        const dozing = g(s, "device.batteryExempt") === false;
+        if (!same(ui.doze, String(dozing))) fill(ui.doze, dozing ? h("div", { class: "notice" },
+          icon("moon"),
+          h("span", { class: "grow" }, h("b", {}, "Akku-Optimierung ist an"), h("small", {}, "Android kann FreeKiosk schlafen legen, dann kommen Befehle nicht an. Einmal am Tablet „Zulassen“ tippen.")),
+          h("button", { type: "button", class: "btn sm", onclick: () => send(tid, "battery_exempt", "", false) }, "Am Tablet fragen")) : null);
         ui.bright.set(g(s, "screen.brightness"));
         ui.vol.set(g(s, "audio.volume"));
-        const host = hostOf(g(s, "webview.currentUrl"));
-        if (!same(ui.page, host)) fill(ui.page, navRow("Start-Seite", host, () => push(urlPage(targets)), "globe"));
+        const open = openUrlOf(t);
+        if (!same(ui.page, open)) fill(ui.page, navRow("Offene Seite", siteLabel(open), () => push(urlPage(targets)), "globe"));
         renderAsterics(ui.ag, targets);
         renderSpeech(ui.tts, targets);
         renderNetwork(ui.net, targets);
@@ -928,7 +1059,7 @@
           ["Geräteverwaltung", g(s, "device.isDeviceOwner") === true ? "ja" : g(s, "device.isDeviceOwner") === false ? "nein" : null],
           ["Kiosk", g(s, "device.kioskMode") === true ? "an" : g(s, "device.kioskMode") === false ? "aus" : null],
           ["Systemrecht", g(s, "tts.secureSettings") === true ? "ja (über WLAN-Debugging)" : g(s, "tts.secureSettings") === false ? "nein" : null],
-          ["Seite", g(s, "webview.currentUrl")], ["AsTeRICS", t.page && t.page.appVersion]];
+          ["Offene Seite", openUrlOf(t)], ["Start-Seite", g(s, "webview.startUrl")], ["AsTeRICS", t.page && t.page.appVersion]];
         fill(ui.info, ...info.map(([k, v]) => row(h("span", { class: "lbl" }, k), h("span", { class: "val", style: "overflow-wrap:anywhere" }, v == null || v === "" ? "–" : String(v)))));
         ui.raw.textContent = JSON.stringify({ state: s, page: t.page }, null, 2);
       },
@@ -1025,14 +1156,14 @@
           groupH("Steuern"),
           h("div", { class: "actions" },
             act("refresh", "Neu laden", () => sendAll(tids, "reload")),
-            act("eye", "Wecken", () => sendAll(tids, "wake")),
+            act("eye", "Wecken", () => { if (sendAll(tids, "screen", "ON", "Werden geweckt")) tids.forEach((x) => send(x, "wake", "", true)); }),
             act("moon", "Bildschirm aus", () => sendAll(tids, "screen", "OFF")),
             act("bell", "Piepen", () => sendAll(tids, "audio_beep")),
             act("bluetooth", "Bluetooth aus", () => sendAll(tids, "bt_power", "OFF"))),
           groupH("Nachricht"),
           h("div", { class: "group" }, textSend("Text", [["Zeigen", (v) => sendAll(tids, "toast", v)], ["Vorlesen", (v) => sendAll(tids, "tts", v)]])),
           groupH("Seite"),
-          h("div", { class: "group" }, navRow("Start-Seite", "", () => push(urlPage(tids)), "globe")),
+          h("div", { class: "group" }, navRow("Seite öffnen", "", () => push(urlPage(tids)), "globe")),
           ui.ag, ui.tts, ui.net);
       },
       refresh() { renderAsterics(ui.ag, tids); renderSpeech(ui.tts, tids); renderNetwork(ui.net, tids); },
@@ -1052,8 +1183,23 @@
     { label: "ARASAAC", url: "https://arasaac.org/", ic: "image" },
     { label: "Scratch", url: "https://scratch.mit.edu/", ic: "code" },
   ];
+  // The page really on screen. A FreeKiosk that reports its start page separately
+  // (startUrl) reports the open page in currentUrl; an older one only knows its start
+  // page, so the Grid agent's last look at the page counts more there.
+  function openUrlOf(t) {
+    const w = g(t || {}, "state.webview") || {};
+    if (w.startUrl !== undefined) return w.currentUrl || w.startUrl || "";
+    return (t && t.page && t.page.href) || w.currentUrl || "";
+  }
+  function siteLabel(url) {
+    if (!url) return "–";
+    const x = SITES.find((site) => hostOf(site.url) === hostOf(url) && (site.label !== "inDiKo" || /indiko/i.test(url)));
+    return x ? x.label : hostOf(url);
+  }
   function urlPage(tids) {
-    const s0 = tids.length === 1 ? g(tablets.get(tids[0]) || {}, "state.webview.currentUrl") || "" : "";
+    const t0 = tids.length === 1 ? tablets.get(tids[0]) : null;
+    const s0 = t0 ? openUrlOf(t0) : "";
+    const start0 = t0 ? g(t0, "state.webview.startUrl") || "" : "";
     const presets = [{ label: "AsTeRICS Grid Beta", url: GRID_URL + "latest/" }];
     const known = (u) => SITES.concat(presets).some((p) => p.url.replace(/\/$/, "") === u.replace(/\/$/, ""));
     const fromSetup = ($("fk-url").value || "").trim();
@@ -1067,9 +1213,14 @@
     };
     const same = (a, b) => a.replace(/[?#].*$/, "").replace(/\/$/, "") === b.replace(/[?#].*$/, "").replace(/\/$/, "");
     return {
-      title: "Start-Seite",
+      title: "Seite öffnen",
       build(body) {
         add(body,
+          s0 ? h("div", { class: "group", style: "margin-bottom:14px" },
+            row(h("span", { class: "nav-ic" }, icon("eye")), h("span", { class: "grow" }, h("span", { class: "row-title" }, "Gerade offen"),
+              h("small", { class: "row-sub", style: "overflow-wrap:anywhere" }, s0)), h("span", { class: "muted" }, siteLabel(s0))),
+            start0 && !same(start0, s0) ? row(h("span", { class: "nav-ic" }, icon("home")), h("span", { class: "grow" }, h("span", { class: "row-title" }, "Start-Seite"),
+              h("small", { class: "row-sub", style: "overflow-wrap:anywhere" }, start0)), h("span", { class: "muted" }, siteLabel(start0))) : null) : null,
           h("div", { class: "sites" }, ...SITES.map((x) =>
             h("button", { type: "button", class: "site", title: hostOf(x.url), onclick: () => choose(x.url) },
               h("span", { class: "site-ic" + (x.own ? " own" : "") }, icon(x.ic)), x.label,
@@ -1081,7 +1232,7 @@
               s0 && same(s0, p.url) ? icon("check", "chk") : null))),
           groupH("Andere Adresse"),
           h("div", { class: "group" }, textSend("https://…", [["Öffnen", (v) => choose(v), "primary"]], "url")),
-          h("div", { class: "foot" }, "Wird die neue Start-Seite. Ist die Seiten-Sperre an, wird die neue Seite freigegeben. Seiten mit Konto (YouTube, Classroom) einmal am Tablet anmelden."));
+          h("div", { class: "foot" }, "Öffnet die Seite sofort und macht sie zur Start-Seite. Ist die Seiten-Sperre an, wird sie freigegeben. Seiten mit Konto (YouTube, Classroom) einmal am Tablet anmelden."));
       },
     };
   }
@@ -1261,13 +1412,13 @@
       title: "Einstellungen",
       build(body) {
         ui.tiles = h("div", { class: "tgrid" });
-        ui.lang = h("select", { "aria-label": "Sprache der Oberfläche" }, ...APP_LANGS.map(([v, l]) => h("option", { value: v }, l)));
-        ui.lang.addEventListener("change", () => agent(tids, "app", { lang: ui.lang.value }, { label: "Sprache gesetzt", reprobe: 6000 }));
+        ui.lang = h("select", { "aria-label": "Sprache von AsTeRICS und vom Grid" }, ...APP_LANGS.map(([v, l]) => h("option", { value: v }, l)));
+        ui.lang.addEventListener("change", () => agent(tids, "app", { lang: ui.lang.value }, { label: "Sprache von App und Grid gesetzt", reprobe: 6000 }));
         ui.code = h("input", { type: "text", inputmode: "numeric", placeholder: "leer = kein Code", spellcheck: "false" });
         add(body,
           ui.tiles,
           h("div", { class: "group", style: "margin-top:10px" },
-            h("label", { class: "row" }, h("span", { class: "lbl" }, "Sprache"), ui.lang),
+            h("label", { class: "row" }, h("span", { class: "lbl" }, "Sprache"), h("span", { class: "grow muted" }, "App und Grid"), ui.lang),
             row(h("span", { class: "lbl" }, "Entsperr-Code"), h("div", { class: "inline" }, ui.code,
               h("button", { type: "button", class: "btn sm light", onclick: () => agent(tids, "app", { passcode: ui.code.value.trim() }, { label: ui.code.value.trim() ? "Code gesetzt" : "Code entfernt" }) }, "Setzen")))),
           h("div", { class: "group", style: "margin-top:10px" }, navRow("Bedienung mit Taster", "", () => push(inputPage(tids)), "ag:sort-amount-down")));
@@ -1293,6 +1444,41 @@
         }
         if (app && document.activeElement !== ui.lang) ui.lang.value = APP_LANGS.some(([v]) => v === app.lang) ? app.lang : "";
         if (app && document.activeElement !== ui.code) ui.code.placeholder = app.passcode ? "Code ist gesetzt" : "leer = kein Code";
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------- page: screenshot
+  function screenshotPage(tid) {
+    const ui = {};
+    return {
+      title: "Bildschirmfoto",
+      build(body) {
+        ui.box = h("div", {});
+        ui.foot = h("div", { class: "foot" });
+        add(body, ui.box,
+          h("div", { class: "row", style: "background:none;padding:14px 0 0" },
+            h("button", { type: "button", class: "btn", onclick: () => requestShot(tid) }, icon("camera"), "Neu aufnehmen")),
+          ui.foot,
+          h("div", { class: "foot" }, "Zeigt, was FreeKiosk gerade anzeigt. Das Bild wird danach vom MQTT-Server gelöscht."));
+        const t = tablets.get(tid);
+        if (!t || !t.shot || Date.now() - t.shot.at > 5000) requestShot(tid);
+      },
+      refresh() {
+        const t = tablets.get(tid) || {};
+        const enabled = g(t, "state.images.screenshotEnabled");
+        const waiting = t.shotWait && Date.now() - t.shotWait < 15000;
+        const late = t.shotWait && !waiting;
+        const key = JSON.stringify([t.shot && t.shot.at, !!waiting, !!late, enabled]);
+        if (same(ui.box, key)) return;
+        fill(ui.box,
+          t.shot ? h("img", { src: t.shot.url, alt: "Bildschirm von " + displayName(tid), class: "shot" }) : null,
+          waiting ? h("div", { class: "empty", style: "padding:20px 0" }, h("span", { class: "spin", style: "display:inline-block" })) : null);
+        ui.foot.className = "foot" + (late || enabled === false ? " warn-t" : "");
+        ui.foot.textContent = enabled !== true && (late || !t.shot)
+          ? "Bildschirmfotos sind auf diesem Tablet aus. Mit einem neuen QR-Code einrichten oder in FreeKiosk unter MQTT einschalten."
+          : late ? "Kein Bild gekommen. Ist der Bildschirm aus? Erst wecken."
+          : t.shot ? `Aufgenommen ${ago(t.shot.at)} · ${t.shot.kb} KB` : "";
       },
     };
   }
@@ -1344,34 +1530,25 @@
       title: "Bedienung",
       build(body) {
         ui.tiles = h("div", { class: "tgrid" });
-        ui.speed = slider("clock", "Tempo", (v) => set({ scanTimeoutMs: Math.round(v * 1000) }, "Tempo gesetzt"),
-          { min: 0.3, max: 5, step: 0.1, unit: " s", fmt: (v) => Number(v).toFixed(1).replace(".", ",") });
-        ui.speedBox = h("div", { class: "group", style: "margin-top:10px" }, ui.speed.el);
         ui.state = h("div", {});
         add(body,
           ui.state,
           ui.tiles,
-          ui.speedBox,
           h("div", { class: "group", style: "margin-top:10px" },
             row(h("span", { class: "grow" }, h("span", { class: "row-title" }, "Tasten zurücksetzen"), h("small", { class: "row-sub" }, "Leertaste: kurz = weiter, lang = auswählen")),
               h("button", { type: "button", class: "btn sm light", onclick: () => set({ resetKeys: true }, "Tasten zurückgesetzt") }, "Zurücksetzen"))),
-          h("div", { class: "foot" }, "Stellt AsTeRICS Grid so ein wie unter Einstellungen › Eingabe › Scanning. Der inDiKo-Taster sendet die Leertaste."));
+          h("div", { class: "foot" }, "Stellt AsTeRICS Grid so ein wie unter Einstellungen › Eingabe › Scanning. Weiter geht es immer mit dem Taster. Der inDiKo-Taster sendet die Leertaste."));
       },
       refresh() {
         const pages = tids.map(pageOf).filter(Boolean);
         const inputs = pages.map((p) => p.input).filter(Boolean);
-        const all = (k) => inputs.length > 0 && inputs.every((i) => i[k]);
-        const scan = all("scan"), auto = all("scanAuto");
-        const key = JSON.stringify([scan, auto, inputs.length, pages.length]);
-        if (!isFocused(ui.tiles) && !same(ui.tiles, key)) {
-          fill(ui.state, !pages.length || inputs.length ? null
-            : h("div", { class: "group", style: "margin-bottom:10px" }, row(h("span", { class: "grow muted" }, "Gerade ist kein Grid offen. Beim Umstellen wird das Haupt-Grid geöffnet."))));
-          fill(ui.tiles,
-            toggle("Scanning", "ag:sort-amount-down", scan, (on) => set({ scan: on }, on ? "Scanning an" : "Scanning aus")),
-            toggle("Automatisch weiter", "refresh", auto, (on) => set({ scan: true, scanAuto: on }, on ? "Läuft automatisch" : "Weiter mit Taster")));
-        }
-        ui.speedBox.hidden = !auto;
-        if (inputs[0]) ui.speed.set(inputs[0].scanTimeoutMs / 1000);
+        const scan = inputs.length > 0 && inputs.every((i) => i.scan);
+        const key = JSON.stringify([scan, inputs.length, pages.length]);
+        if (isFocused(ui.tiles) || same(ui.tiles, key)) return;
+        fill(ui.state, !pages.length || inputs.length ? null
+          : h("div", { class: "group", style: "margin-bottom:10px" }, row(h("span", { class: "grow muted" }, "Gerade ist kein Grid offen. Beim Umstellen wird das Haupt-Grid geöffnet."))));
+        fill(ui.tiles,
+          toggle("Scanning", "ag:sort-amount-down", scan, (on) => set(on ? { scan: true, scanAuto: false } : { scan: false }, on ? "Scanning an" : "Scanning aus")));
       },
     };
   }
@@ -1531,6 +1708,10 @@
           engines.set(e.package, x);
         }));
         const sysActive = known.every((t) => !(t.engines || []).some((e) => e.hidden));
+        // Languages AsTeRICS sees as offline voices (from the Grid agent's voice list)
+        const local = new Set();
+        tids.forEach((tid) => ((pageOf(tid) || {}).voices || []).forEach((v) => { if (v.local && v.lang) local.add(v.lang.slice(0, 2).toLowerCase()); }));
+        const offlineLangs = local.size ? "Offline: " + [...local].map((l) => { try { return langNames ? langNames.of(l) : l; } catch (e) { return l; } }).sort((a, b) => a.localeCompare(b, "de")).join(", ") : "";
         const rows = [...engines.values()].filter((e) => !e.system).map((e) => row(
           h("span", { class: "nav-ic" }, icon("speak")),
           h("span", { class: "grow" }, h("span", { class: "row-title" }, engineName(e)),
@@ -1547,8 +1728,11 @@
             ...rows,
             h("button", { type: "button", class: "row nav", onclick: () => use("system") },
               h("span", { class: "nav-ic" }, icon("tablet")),
-              h("span", { class: "grow" }, h("span", { class: "row-title" }, "System-Stimme"), h("small", { class: "row-sub" }, "Samsung oder Google, braucht teils Internet")),
-              sysActive ? icon("check", "chk") : null)),
+              h("span", { class: "grow" }, h("span", { class: "row-title" }, "System-Stimme"), h("small", { class: "row-sub" }, offlineLangs || "Samsung oder Google")),
+              sysActive ? icon("check", "chk") : null),
+            sysActive ? row(h("span", { class: "nav-ic" }, icon("download")),
+              h("span", { class: "grow" }, h("span", { class: "row-title" }, "Weitere Sprachen dazu"), h("small", { class: "row-sub" }, "Öffnet am Tablet die Download-Seite von Samsung oder Google")),
+              h("button", { type: "button", class: "btn sm light", onclick: () => sendSigned(tids, "tts_voice_data", "", "", { package: "" }, "Wird am Tablet geöffnet") }, "Am Tablet öffnen")) : null),
           busy ? h("div", { class: "foot" }, h("span", { class: "spin", style: "display:inline-block;vertical-align:-3px;margin-right:6px" }), busy.lastAction || (busy.busyAction === "uninstall" ? "Wird entfernt …" : "Lädt herunter …")) : null,
           !busy && err ? h("div", { class: "foot err" }, err) : null,
           !busy && !err && one && one.lastAction ? h("div", { class: "foot" }, one.lastAction) : null,
@@ -1700,7 +1884,7 @@
     return true;
   }
   window.KitTablets = {
-    tablets, settings, wsDefault, gridAgent, agent, send, sendAll, publishRaw, agentReachable,
+    tablets, settings, wsDefault, gridAgent, agent, send, sendAll, publishRaw, agentReachable, listen,
     openSheet, push, pop, closeSheet, groupH, row, navRow, visibleEntries, statusOf, pageOf, avatarEl, displayName,
     get conn() { return conn; }, get online() { return !!client && client.state === "online"; },
   };

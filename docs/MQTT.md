@@ -431,6 +431,8 @@ Commands are sent by publishing to `{baseTopic}/{topicId}/set/{entity}`.
 | **tts_engine** | ttsEngine | signed JSON `{"package","ts","sig"}`, package `system` for the tablet's own | Choose the speech engine every app uses |
 | **wifi_add** | wifiAdd | signed JSON `{"ssid","enc","type","hidden","ts","sig"}` | Save a spare Wi-Fi network for the whole device (Device Owner) |
 | **wifi_remove** | wifiRemove | signed JSON `{"ssid","ts","sig"}` | Remove a saved network (never the one in use) |
+| **tts_voice_data** | ttsVoiceData | signed JSON `{"package","ts","sig"}`, empty package = active engine | Open the engine's own voice download screen on the tablet (someone taps there) |
+| **battery_exempt** | requestBatteryExemption | any | Show Android's battery optimization dialog on the tablet (state: `device.batteryExempt`) |
 
 
 
@@ -443,7 +445,7 @@ extras or as an ADB extra). The key never travels over MQTT.
 - `sig` = hex HMAC-SHA256 with the admin key over `cmd|a|b|ts`, where `ts` is the time
   in milliseconds. `a`/`b` are `package`/`url` for `tts_install`, `package`/empty for
   `tts_uninstall` and `tts_engine`, `ssid`/`enc|type|hidden(0 or 1)` for `wifi_add`,
-  `ssid`/empty for `wifi_remove`.
+  `ssid`/empty for `wifi_remove`, `package`/empty for `tts_voice_data`.
 - A command older than 15 minutes, or not newer than the last accepted one, is refused.
 - `enc` (the Wi-Fi password) is base64(12-byte IV + AES-256-GCM ciphertext + tag) with
   the key SHA-256(`"wifi|" + adminKey`). Empty for an open network.

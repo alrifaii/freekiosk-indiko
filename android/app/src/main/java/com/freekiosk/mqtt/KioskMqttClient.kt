@@ -99,6 +99,18 @@ class KioskMqttClient(
     private var reconnectDelay = 1000L
     private val maxReconnectDelay = 30000L
 
+    /** One pending reconnect at a time, whichever path noticed the lost connection. */
+    private val reconnectRunnable = Runnable { if (!_isConnected && !disconnectRequested) sendConnect() }
+
+    private fun scheduleReconnect() {
+        if (disconnectRequested) return
+        val delay = reconnectDelay
+        reconnectDelay = (reconnectDelay * 2).coerceAtMost(maxReconnectDelay)
+        Log.i(TAG, "Scheduling reconnect in ${delay}ms")
+        mainHandler.removeCallbacks(reconnectRunnable)
+        mainHandler.postDelayed(reconnectRunnable, delay)
+    }
+
     // ==================== Locks for background persistence ====================
 
     /** WiFi lock to prevent WiFi from sleeping when screen is off. */
@@ -325,12 +337,7 @@ class KioskMqttClient(
                         onConnectionChanged?.invoke(false)
                     }
                     // Manual reconnect with exponential backoff (preserves credentials)
-                    if (!disconnectRequested) {
-                        val delay = reconnectDelay
-                        reconnectDelay = (reconnectDelay * 2).coerceAtMost(maxReconnectDelay)
-                        Log.i(TAG, "Scheduling reconnect in ${delay}ms")
-                        mainHandler.postDelayed({ sendConnect() }, delay)
-                    }
+                    scheduleReconnect()
                 }
                 .buildAsync()
 
@@ -352,6 +359,7 @@ class KioskMqttClient(
      */
     fun disconnect() {
         disconnectRequested = true
+        mainHandler.removeCallbacks(reconnectRunnable)
         stopStatusPublishing()
         imagePublisher?.stop()
         imagePublisher = null
@@ -454,6 +462,9 @@ class KioskMqttClient(
                     mainHandler.post {
                         onConnectionError?.invoke(errorMsg)
                         onConnectionChanged?.invoke(false)
+                        // A first connect that fails (no network yet after boot) must be
+                        // retried too, not only a connection that was lost later
+                        scheduleReconnect()
                     }
                 }
             }
@@ -793,6 +804,9 @@ class KioskMqttClient(
             "tts_install" -> "ttsInstall" to jsonPayload(payload)
             "tts_uninstall" -> "ttsUninstall" to jsonPayload(payload)
             "tts_engine" -> "ttsEngine" to jsonPayload(payload)
+            "tts_voice_data" -> "ttsVoiceData" to jsonPayload(payload)
+            // Shows Android's "allow running in the background" dialog on the tablet
+            "battery_exempt" -> "requestBatteryExemption" to null
             "wifi_add" -> "wifiAdd" to jsonPayload(payload)
             "wifi_remove" -> "wifiRemove" to jsonPayload(payload)
 

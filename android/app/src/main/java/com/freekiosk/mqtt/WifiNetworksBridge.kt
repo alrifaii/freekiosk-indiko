@@ -1,12 +1,17 @@
 package com.freekiosk.mqtt
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Context
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.wifi.WifiConfiguration
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.util.Log
+import com.freekiosk.DeviceAdminReceiver
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -105,6 +110,34 @@ class WifiNetworksBridge(
             saveOurs(context, map)
             Log.i(TAG, "Saved Wi-Fi network \"$ssid\" ($kind)")
             return null
+        }
+
+        @Volatile private var ssidAccessTried = false
+
+        /**
+         * Android shows the name of the current Wi-Fi network only to apps with location
+         * permission while location is on. A Device Owner can grant itself the permission
+         * and switch location on; tried once per app start.
+         */
+        fun ensureSsidAccess(context: Context) {
+            if (ssidAccessTried) return
+            ssidAccessTried = true
+            if (!isOwner(context)) return
+            try {
+                val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+                val admin = ComponentName(context, DeviceAdminReceiver::class.java)
+                for (p in listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) {
+                    if (context.checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) {
+                        dpm.setPermissionGrantState(admin, context.packageName, p, DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED)
+                    }
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+                    if (lm != null && !lm.isLocationEnabled) dpm.setLocationEnabled(admin, true)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not unlock the Wi-Fi name: ${e.message}")
+            }
         }
 
         /** From the provisioning QR or an ADB intent. Returns how many networks were saved. */

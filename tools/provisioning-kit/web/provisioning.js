@@ -147,6 +147,9 @@ function buildProvisioning(o) {
       if (fk.pass) extras.mqtt_password = fk.pass;
       if ((fk.topic || "").trim()) extras.mqtt_base_topic = fk.topic.trim();
       if (fk.adminKey) extras.mqtt_admin_key = fk.adminKey;
+      // Screen picture on request in the kit (Tablets > Bildschirmfoto); small enough for any broker
+      extras.mqtt_screenshot_enabled = "true";
+      extras.mqtt_screenshot_max_width = "900";
       const devName = (fk.name || "").trim();
       if (devName) {
         extras.mqtt_device_name = devName;

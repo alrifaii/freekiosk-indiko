@@ -53,6 +53,15 @@ interface KioskScreenProps {
 /** Duration (ms) the motion pre-check window runs before activating the screensaver. */
 const MOTION_PRE_CHECK_DELAY_MS = 10_000;
 
+// MQTT belongs to the KioskScreen mounted last. A remount (QR config replayed with a
+// restart, back from settings) runs the old instance's cleanup after the new one has
+// started MQTT, and that cleanup used to stop it: the tablet stayed offline until someone
+// pressed "Connect" in the settings. Only the newest mount may stop it now.
+let kioskMountGeneration = 0;
+// How often the watchdog checks MQTT, and how many failed checks restart it
+const MQTT_WATCHDOG_MS = 30_000;
+const MQTT_WATCHDOG_MISSES = 2;
+
 const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
   const isFocused = useIsFocused();
   const [url, setUrl] = useState<string>('');
@@ -653,6 +662,7 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
 
   // API Service initialization - connect REST API to app controls
   useEffect(() => {
+    const mountGeneration = ++kioskMountGeneration;
     const initApiService = async () => {
       await ApiService.initialize({
         onSetBrightness: async (value: number) => {
@@ -1023,12 +1033,59 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
       try {
         await ApiService.autoStartMqtt();
       } catch (e) {
-        // Expected when MQTT is disabled or not configured
-        console.log('ApiService: MQTT auto-start skipped:', (e as Error).message);
+        // Expected when MQTT is disabled or not configured. "Already running" is a
+        // client the previous mount started: restart it with the current settings.
+        if (/already/i.test(String((e as Error).message))) {
+          await ApiService.stopMqtt();
+          await ApiService.autoStartMqtt().catch(() => {});
+        } else {
+          console.log('ApiService: MQTT auto-start skipped:', (e as Error).message);
+        }
+      }
+
+      // Android puts an app that is not exempt from battery optimization to sleep, network
+      // included, and MQTT then misses commands. Ask once, right after setup, while
+      // someone is at the tablet; the dialog needs one tap.
+      try {
+        if (await StorageService.getMqttEnabled()) {
+          const asked = await AsyncStorage.getItem('@kiosk_doze_exemption_asked');
+          if (!asked && !(await KioskModule.isIgnoringBatteryOptimizations())) {
+            await AsyncStorage.setItem('@kiosk_doze_exemption_asked', String(Date.now()));
+            await KioskModule.requestIgnoreBatteryOptimizations();
+          }
+        }
+      } catch {
+        // best-effort
       }
     };
 
     initApiService();
+
+    // MQTT watchdog: what the "Connect" button in the settings does, done automatically
+    // when the client has been disconnected for two checks in a row.
+    let mqttMisses = 0;
+    const mqttWatchdog = setInterval(async () => {
+      if (mountGeneration !== kioskMountGeneration) return;
+      try {
+        if (!(await StorageService.getMqttEnabled()) || !(await StorageService.getMqttBrokerUrl())) {
+          mqttMisses = 0;
+          return;
+        }
+        if (await mqttClient.isConnected()) {
+          mqttMisses = 0;
+          return;
+        }
+        mqttMisses++;
+        if (mqttMisses >= MQTT_WATCHDOG_MISSES) {
+          mqttMisses = 0;
+          console.log('[KioskScreen] MQTT still disconnected, restarting the client');
+          await ApiService.stopMqtt();
+          await ApiService.autoStartMqtt();
+        }
+      } catch (e) {
+        console.log('[KioskScreen] MQTT watchdog:', (e as Error).message);
+      }
+    }, MQTT_WATCHDOG_MS);
 
     // MQTT background reconnection: check connection when app comes back to foreground
     const mqttAppStateSubscription = AppState.addEventListener('change', async (nextState) => {
@@ -1048,8 +1105,12 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
 
     return () => {
       mqttAppStateSubscription.remove();
-      ApiService.stopMqtt();
-      ApiService.destroy();
+      clearInterval(mqttWatchdog);
+      // A newer KioskScreen owns MQTT and the command listener by now
+      if (mountGeneration === kioskMountGeneration) {
+        ApiService.stopMqtt();
+        ApiService.destroy();
+      }
     };
   }, []);
 
@@ -1134,7 +1195,9 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
   // Update API status when relevant state changes
   useEffect(() => {
     ApiService.updateStatus({
-      currentUrl: url,
+      // What is really on screen; the start page goes separately
+      currentUrl: currentWebViewUrlRef.current || url,
+      startUrl: url,
       brightness: Math.round(effectiveBrightness * 100),
       screensaverActive: isScreensaverActive,
       kioskMode: true, // Always in kiosk mode when this screen is active
@@ -3121,6 +3184,8 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
               }}
               onPageNavigated={(navUrl: string) => {
                 currentWebViewUrlRef.current = navUrl;
+                // Report the page that is really open (MQTT, REST), not only the start page
+                ApiService.updateStatus({ currentUrl: navUrl });
                 // In dashboard mode (viewing a tile), always reset the inactivity timer on
                 // any page navigation so self-refreshing pages don't trigger an unexpected
                 // return to the grid. For non-dashboard mode, respect the user setting.

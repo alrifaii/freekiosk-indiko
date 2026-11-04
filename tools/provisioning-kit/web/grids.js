@@ -6,9 +6,9 @@
   "use strict";
   const { $, h, fill, icon, toggle, hud } = Kit;
   const T = () => window.KitTablets;
-  const MAX_BYTES = 8 * 1024 * 1024;
-  const WARN_BYTES = 900 * 1024;
-  const CLEAR_AFTER_MS = 4 * 60 * 1000;
+  const MAX_BYTES = 20 * 1024 * 1024;
+  const CHUNK = 48 * 1024; // passes the message size limit of every common broker
+  const OFFER_MS = 5 * 60 * 1000; // how long the kit answers tablets that say "ready"
   const te = new TextEncoder();
 
   const TOOLS = [
@@ -88,11 +88,18 @@
 
   async function takeFile(f) {
     if (!/\.(grd|json|txt|obf|obz)$/i.test(f.name)) { hud("Nur .grd, .obf oder .obz", "bad"); return; }
-    if (f.size > MAX_BYTES) { hud("Datei zu groß (höchstens 8 MB)", "bad"); return; }
+    if (f.size > MAX_BYTES) { hud("Datei zu groß (höchstens 20 MB)", "bad"); return; }
     const bytes = new Uint8Array(await f.arrayBuffer());
     // AsTeRICS decides by file name; a .json backup is a .grd file
     const name = /\.json$/i.test(f.name) && !/\.grd\.json$/i.test(f.name) ? f.name.replace(/\.json$/i, ".grd") : f.name;
     openSend({ name, bytes }, { open: false, what: f.name });
+  }
+
+  async function gzip(bytes) {
+    if (!window.CompressionStream) return null;
+    try {
+      return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
+    } catch (e) { return null; }
   }
 
   function saveFile(file) {
@@ -109,19 +116,35 @@
     const chosen = new Set();
     const ui = { open: !!opts.open };
     const kb = Math.max(1, Math.round(file.bytes.length / 1024));
-    const send = () => {
+    // Each tablet opens its own connection, says "ready" and gets the file in pieces,
+    // gzipped. Nothing stays on the MQTT server.
+    const send = async () => {
       if (!K.online) { hud("Keine Verbindung", "bad"); return; }
       if (!K.agentReachable()) { hud("Braucht einen wss://-Server", "bad"); return; }
       const tids = [...chosen];
       if (!tids.length) { hud("Erst Tablets antippen", "bad"); return; }
+      const packed = await gzip(file.bytes);
+      const data = packed || file.bytes;
+      const pieces = [];
+      for (let i = 0; i < data.length; i += CHUNK) pieces.push(data.subarray(i, i + CHUNK));
+      if (!pieces.length) pieces.push(new Uint8Array(0));
       const s = K.settings();
       const id = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join("");
       const topic = `${s.base}/kit/inbox/${id}`;
-      if (!K.publishRaw(topic, file.bytes, true)) { hud("Keine Verbindung", "bad"); return; }
-      // The file is only kept on the server until the tablets had time to fetch it
-      setTimeout(() => K.publishRaw(topic, new Uint8Array(0), true), CLEAR_AFTER_MS);
-      K.agent(tids, "import", { topic, name: file.name, open: ui.open },
-        { sending: tids.length > 1 ? `Sendet an ${tids.length} Tablets …` : "Sendet …", label: `${opts.what} importiert`, reprobe: 25000 });
+      const asked = new Set();
+      const stop = K.listen(topic + "/ready", (t, payload) => {
+        const who = new TextDecoder().decode(payload);
+        if (asked.has(who)) return;
+        asked.add(who);
+        hud(`Tablet holt die Datei (${pieces.length} ${pieces.length === 1 ? "Teil" : "Teile"})`);
+        pieces.forEach((piece, i) => K.publishRaw(`${topic}/c/${i}`, piece, false));
+      });
+      setTimeout(stop, OFFER_MS);
+      // Give the subscription a moment before the tablets can answer
+      setTimeout(() => {
+        K.agent(tids, "import", { topic, name: file.name, open: ui.open, n: pieces.length, gz: !!packed },
+          { sending: tids.length > 1 ? `Sendet an ${tids.length} Tablets …` : "Sendet …", label: `${opts.what} importiert`, reprobe: 30000 });
+      }, 300);
       K.closeSheet();
     };
     K.openSheet({
@@ -139,8 +162,7 @@
           h("div", { class: "tgrid", style: "margin-top:12px" }, toggle("Danach öffnen", "ag:th-large", ui.open, (on) => { ui.open = on; })),
           h("div", { class: "row", style: "padding:16px 0 0;background:none" }, ui.btn),
           h("div", { class: "foot" }, "Kommt zu den Grids dazu, nichts wird gelöscht. AsTeRICS Grid muss auf dem Tablet offen sein."),
-          file.bytes.length > WARN_BYTES && pub ? h("div", { class: "foot warn-t" }, "Große Datei: ein öffentlicher MQTT-Server nimmt sie vielleicht nicht an.") : null,
-          pub ? h("div", { class: "foot warn-t" }, "Die Datei liegt kurz auf dem öffentlichen MQTT-Server. Keine Namen oder Fotos von Personen in Grids, die so verschickt werden.") : null);
+          pub ? h("div", { class: "foot warn-t" }, "Die Datei geht über den öffentlichen MQTT-Server. Keine Namen oder Fotos von Personen in Grids, die so verschickt werden.") : null);
       },
       refresh() {
         const entries = K.visibleEntries();

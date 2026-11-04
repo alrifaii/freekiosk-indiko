@@ -124,12 +124,7 @@ class TtsPackageBridge(
         out.put("engines", engines)
         val preferred = try { Settings.Secure.getString(context.contentResolver, "tts_default_synth") } catch (_: Exception) { null }
         out.put("preferred", preferred ?: "")
-        // What TextToSpeech actually binds to: the preferred engine if it is visible,
-        // otherwise the first system engine, otherwise the first one at all.
-        val active = visible.firstOrNull { it.first == preferred }?.first
-            ?: visible.firstOrNull { (it.second.flags and ApplicationInfo.FLAG_SYSTEM) != 0 }?.first
-            ?: visible.firstOrNull()?.first
-        out.put("active", active ?: JSONObject.NULL)
+        out.put("active", activeEngine(visible, preferred) ?: JSONObject.NULL)
         out.put("busy", busy ?: JSONObject.NULL)
         out.put("busyAction", busyAction)
         out.put("lastAction", lastAction)
@@ -139,6 +134,18 @@ class TtsPackageBridge(
         out.put("owner", isOwner())
         return out
     }
+
+    /**
+     * What TextToSpeech actually binds to: the preferred engine if it is visible,
+     * otherwise the first system engine, otherwise the first one at all.
+     */
+    private fun activeEngine(
+        visible: List<Pair<String, ApplicationInfo>> = visibleEngines(),
+        preferred: String? = try { Settings.Secure.getString(context.contentResolver, "tts_default_synth") } catch (_: Exception) { null },
+    ): String? =
+        visible.firstOrNull { it.first == preferred }?.first
+            ?: visible.firstOrNull { (it.second.flags and ApplicationInfo.FLAG_SYSTEM) != 0 }?.first
+            ?: visible.firstOrNull()?.first
 
     private fun engineJson(pkg: String, ai: ApplicationInfo, hidden: Boolean): JSONObject {
         val pm = context.packageManager
@@ -227,6 +234,49 @@ class TtsPackageBridge(
             busy = null
             busyAction = ""
             fail("Entfernen fehlgeschlagen: ${e.message}")
+        }
+    }
+
+    // ─── Voice data of an engine (Samsung, Google) ───────────────────────────
+
+    private var lockTaskBefore: Array<String>? = null
+    private val restoreLockTask = Runnable {
+        val before = lockTaskBefore ?: return@Runnable
+        lockTaskBefore = null
+        try { dpm().setLockTaskPackages(admin(), before) } catch (_: Exception) {}
+    }
+
+    /**
+     * Samsung's and Google's engines download their voices only in their own screen, and
+     * someone has to tap there. This opens that screen on the tablet (let through lock
+     * task for a few minutes); the language is then usable offline.
+     */
+    fun openVoiceData(params: JSONObject?) {
+        verify("tts_voice_data", params)?.let { return fail(it) }
+        val target = params!!.optString("package", "").ifEmpty { activeEngine() ?: "" }
+        if (target.isEmpty()) return fail("Keine Sprachausgabe gefunden")
+        if (isHidden(target)) return fail("Diese Sprachausgabe ist versteckt. Erst „System-Stimme“ wählen.")
+        val intent = Intent("android.speech.tts.engine.INSTALL_TTS_DATA")
+            .setPackage(target)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        @Suppress("DEPRECATION")
+        val resolved = context.packageManager.resolveActivity(intent, 0)
+        if (resolved == null) return fail("Diese Sprachausgabe hat keine Seite zum Laden von Stimmen")
+        try {
+            if (isOwner()) {
+                val current = com.freekiosk.LockTaskCompat.readPackages(dpm(), admin())
+                if (current != null && target !in current) {
+                    if (lockTaskBefore == null) lockTaskBefore = current
+                    dpm().setLockTaskPackages(admin(), (current.toList() + target).distinct().toTypedArray())
+                }
+                handler.removeCallbacks(restoreLockTask)
+                handler.postDelayed(restoreLockTask, 5 * 60 * 1000L)
+            }
+            context.startActivity(intent)
+            ok("Am Tablet ist die Seite zum Laden der Stimmen offen")
+        } catch (e: Exception) {
+            handler.post(restoreLockTask)
+            fail("Seite ließ sich nicht öffnen: ${e.message}")
         }
     }
 

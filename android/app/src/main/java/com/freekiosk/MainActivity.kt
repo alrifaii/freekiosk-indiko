@@ -164,6 +164,9 @@ class MainActivity : ReactActivity() {
       "mqtt_status_interval" to "@kiosk_mqtt_status_interval",
       "mqtt_allow_control" to "@kiosk_mqtt_allow_control",
       "mqtt_device_name" to "@kiosk_mqtt_device_name",
+      // Screenshots on request over MQTT (screenshot_capture), so the kit can show the screen
+      "mqtt_screenshot_enabled" to "@kiosk_mqtt_screenshot_enabled",
+      "mqtt_screenshot_max_width" to "@kiosk_mqtt_screenshot_max_width",
       "dashboard_mode" to "@kiosk_dashboard_mode_enabled",
       "kiosk_enabled" to "@kiosk_enabled",
       // Lock-screen controls on the PIN screen. A Bluetooth switch that acts as a keyboard
