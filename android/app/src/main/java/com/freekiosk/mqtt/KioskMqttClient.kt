@@ -793,6 +793,8 @@ class KioskMqttClient(
             "tts_install" -> "ttsInstall" to jsonPayload(payload)
             "tts_uninstall" -> "ttsUninstall" to jsonPayload(payload)
             "tts_engine" -> "ttsEngine" to jsonPayload(payload)
+            "wifi_add" -> "wifiAdd" to jsonPayload(payload)
+            "wifi_remove" -> "wifiRemove" to jsonPayload(payload)
 
             "rotation_start" -> "rotationStart" to null
             "rotation_stop" -> "rotationStop" to null

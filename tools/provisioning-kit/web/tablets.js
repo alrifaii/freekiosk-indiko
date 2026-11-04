@@ -574,7 +574,7 @@
   // A picture of the person who uses the tablet, or a colour with initials, and a
   // name. Both stay in this browser only (never on the MQTT server): personal data.
   const AVATAR_STORE = "fkkit.avatars";
-  const AVATAR_COLORS = ["#0071e3", "#34c759", "#ff9500", "#ff2d55", "#af52de", "#5ac8fa", "#a2845e", "#8e8e93"];
+  const AVATAR_COLORS = ["#00659c", "#8cb110", "#4e93bd", "#d9822b", "#c0507a", "#7b5ea7", "#2e9c8f", "#757b80"];
   let avatars = lsGet(AVATAR_STORE) || {};
   const prof = (tid) => avatars[tid] || {};
   function saveProf(tid, patch) {
@@ -687,10 +687,26 @@
     }
     return hex(hmacSha256(te.encode(key), te.encode(msg)));
   }
-  async function sendSigned(tids, cmd, fields, label) {
+  // Signed over "cmd|a|b|ts"; what a and b are depends on the command (see AdminSignature.kt).
+  async function sendSigned(tids, cmd, a, b, fields, label) {
     const ts = Date.now();
-    const sig = await hmacHex(Kit.adminKey(), [cmd, fields.package || "", fields.url || "", ts].join("|"));
+    const sig = await hmacHex(Kit.adminKey(), [cmd, a, b, ts].join("|"));
     return sendAll(tids, cmd, JSON.stringify(Object.assign({}, fields, { ts, sig })), label);
+  }
+  // A secret inside a command (Wi-Fi password): AES-256-GCM under SHA-256("purpose|key").
+  async function encryptFor(purpose, text) {
+    if (!(window.crypto && crypto.subtle)) throw new Error("Geht nur, wenn das Kit über Start.bat (localhost) läuft");
+    const te = new TextEncoder();
+    const raw = await crypto.subtle.digest("SHA-256", te.encode(purpose + "|" + Kit.adminKey()));
+    const key = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt"]);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, te.encode(text)));
+    const all = new Uint8Array(iv.length + ct.length);
+    all.set(iv);
+    all.set(ct, iv.length);
+    let bin = "";
+    all.forEach((b) => { bin += String.fromCharCode(b); });
+    return btoa(bin);
   }
 
   function render() {
@@ -855,6 +871,7 @@
       build(body) {
         ui.stats = h("div", { class: "stats" });
         ui.tts = h("div", {});
+        ui.net = h("div", {});
         ui.bright = slider("sun", "Helligkeit", (v) => send(tid, "brightness", v));
         ui.vol = slider("volume", "Lautstärke", (v) => send(tid, "volume", v));
         ui.page = h("div", { class: "group" });
@@ -880,6 +897,7 @@
           groupH("Seite"), ui.page,
           ui.ag,
           ui.tts,
+          ui.net,
           ui.bt,
           h("details", { class: "more" }, h("summary", {}, icon("chev"), "Details"), ui.info,
             h("div", { class: "group-h" }, "Rohdaten"), h("div", { class: "group" }, ui.raw)));
@@ -902,12 +920,14 @@
         if (!same(ui.page, host)) fill(ui.page, navRow("Start-Seite", host, () => push(urlPage(targets)), "globe"));
         renderAsterics(ui.ag, targets);
         renderSpeech(ui.tts, targets);
+        renderNetwork(ui.net, targets);
         renderBluetooth(ui.bt, tid, s.bluetooth);
         const info = [
           ["WLAN", g(s, "wifi.ssid")], ["IP", g(s, "device.ip") || g(s, "wifi.ipAddress")], ["FreeKiosk", g(s, "device.version")],
           ["Android", g(s, "device.androidVersion")], ["Modell", g(s, "device.model")],
           ["Geräteverwaltung", g(s, "device.isDeviceOwner") === true ? "ja" : g(s, "device.isDeviceOwner") === false ? "nein" : null],
           ["Kiosk", g(s, "device.kioskMode") === true ? "an" : g(s, "device.kioskMode") === false ? "aus" : null],
+          ["Systemrecht", g(s, "tts.secureSettings") === true ? "ja (über WLAN-Debugging)" : g(s, "tts.secureSettings") === false ? "nein" : null],
           ["Seite", g(s, "webview.currentUrl")], ["AsTeRICS", t.page && t.page.appVersion]];
         fill(ui.info, ...info.map(([k, v]) => row(h("span", { class: "lbl" }, k), h("span", { class: "val", style: "overflow-wrap:anywhere" }, v == null || v === "" ? "–" : String(v)))));
         ui.raw.textContent = JSON.stringify({ state: s, page: t.page }, null, 2);
@@ -945,6 +965,17 @@
     const active = one && (one.engines || []).find((e) => e.package === one.active);
     fill(box, groupH("Sprachausgabe"), h("div", { class: "group" },
       navRow("Offline-Stimmen", one ? (one.busy ? "lädt …" : engineName(active)) : "", () => push(ttsPage(targets)), "speak")));
+  }
+
+  // Wi-Fi networks saved on the tablet, shared by the tablet and the selection page
+  function renderNetwork(box, targets) {
+    const one = targets.length === 1 ? tablets.get(targets[0]) : null;
+    const w = one ? g(one, "state.wifiNetworks") : null;
+    const cur = one ? g(one, "state.wifi.ssid") || (w && w.current) : null;
+    const n = w && w.saved ? w.saved.length : 0;
+    if (same(box, JSON.stringify([targets, cur, n]))) return;
+    fill(box, groupH("Netzwerk"), h("div", { class: "group" },
+      navRow("WLANs", one ? [cur, n > 1 ? `+${n - 1}` : ""].filter(Boolean).join(" ") || "–" : "", () => push(wifiPage(targets)), "wifi")));
   }
 
   function renderBluetooth(box, tid, bt) {
@@ -988,6 +1019,7 @@
       build(body) {
         ui.ag = h("div", {});
         ui.tts = h("div", {});
+        ui.net = h("div", {});
         add(body,
           h("div", { class: "chips" }, ...tids.map((t) => h("span", { class: "chip" }, avatarEl(t, "sm"), displayName(t)))),
           groupH("Steuern"),
@@ -1001,23 +1033,24 @@
           h("div", { class: "group" }, textSend("Text", [["Zeigen", (v) => sendAll(tids, "toast", v)], ["Vorlesen", (v) => sendAll(tids, "tts", v)]])),
           groupH("Seite"),
           h("div", { class: "group" }, navRow("Start-Seite", "", () => push(urlPage(tids)), "globe")),
-          ui.ag, ui.tts);
+          ui.ag, ui.tts, ui.net);
       },
-      refresh() { renderAsterics(ui.ag, tids); renderSpeech(ui.tts, tids); },
+      refresh() { renderAsterics(ui.ag, tids); renderSpeech(ui.tts, tids); renderNetwork(ui.net, tids); },
     });
   }
 
   // ---------------------------------------------------------------- page: start page
-  // Quick picks. Generic symbols on brand-like colours, no copied logos.
+  // Quick picks in the kit's own look: own projects filled, other sites soft, generic
+  // symbols instead of foreign logos.
   const SITES = [
-    { label: "AsTeRICS Grid", url: GRID_URL, ic: "ag:th-large", color: "#0071e3" },
-    { label: "YouTube", url: "https://www.youtube.com/", ic: "play", color: "#ff0033" },
-    { label: "Google Classroom", url: "https://classroom.google.com/", ic: "board", color: "#1e8e3e" },
-    { label: "inDiKo", url: "https://www.technikum-wien.at/forschungsprojekte/indiko/", ic: "school", color: "#00589f" },
-    { label: "ANTON", url: "https://anton.app/de/", ic: "star", color: "#ff9f0a" },
-    { label: "Klexikon", url: "https://klexikon.zum.de/", ic: "book", color: "#e8467c" },
-    { label: "ARASAAC", url: "https://arasaac.org/", ic: "image", color: "#8e44ad" },
-    { label: "Scratch", url: "https://scratch.mit.edu/", ic: "code", color: "#00a6a6" },
+    { label: "AsTeRICS Grid", url: GRID_URL, ic: "ag:th-large", own: true },
+    { label: "inDiKo", url: "https://www.technikum-wien.at/forschungsprojekte/indiko/", ic: "school", own: true },
+    { label: "YouTube", url: "https://www.youtube.com/", ic: "play" },
+    { label: "Google Classroom", url: "https://classroom.google.com/", ic: "board" },
+    { label: "ANTON", url: "https://anton.app/de/", ic: "star" },
+    { label: "Klexikon", url: "https://klexikon.zum.de/", ic: "book" },
+    { label: "ARASAAC", url: "https://arasaac.org/", ic: "image" },
+    { label: "Scratch", url: "https://scratch.mit.edu/", ic: "code" },
   ];
   function urlPage(tids) {
     const s0 = tids.length === 1 ? g(tablets.get(tids[0]) || {}, "state.webview.currentUrl") || "" : "";
@@ -1039,7 +1072,7 @@
         add(body,
           h("div", { class: "sites" }, ...SITES.map((x) =>
             h("button", { type: "button", class: "site", title: hostOf(x.url), onclick: () => choose(x.url) },
-              h("span", { class: "site-ic", style: `background:${x.color}` }, icon(x.ic)), x.label,
+              h("span", { class: "site-ic" + (x.own ? " own" : "") }, icon(x.ic)), x.label,
               s0 && same(s0, x.url) ? icon("check", "chk") : null))),
           groupH("Weitere"),
           h("div", { class: "group" }, ...presets.map((p) =>
@@ -1311,7 +1344,7 @@
       title: "Bedienung",
       build(body) {
         ui.tiles = h("div", { class: "tgrid" });
-        ui.speed = slider("ag:sort-amount-down", "Tempo", (v) => set({ scanTimeoutMs: Math.round(v * 1000) }, "Tempo gesetzt"),
+        ui.speed = slider("clock", "Tempo", (v) => set({ scanTimeoutMs: Math.round(v * 1000) }, "Tempo gesetzt"),
           { min: 0.3, max: 5, step: 0.1, unit: " s", fmt: (v) => Number(v).toFixed(1).replace(".", ",") });
         ui.speedBox = h("div", { class: "group", style: "margin-top:10px" }, ui.speed.el);
         ui.state = h("div", {});
@@ -1435,10 +1468,10 @@
       const ready = tids.filter((tid, i) => states()[i]);
       if (!ready.length) { hud("Braucht die neue FreeKiosk-Version", "bad"); return; }
       if (!confirm(`„${v.name}“ (${LANGS3[v.lang3] || v.lang3}, ${mb(v.size)}) auf ${where()} laden?\nErsetzt eine vorhandene Offline-Stimme. Das Tablet lädt die Datei selbst, am besten im WLAN.`)) return;
-      sendSigned(ready, "tts_install", { package: SHERPA_PKG, url: v.url }, "Lädt Stimme …");
+      sendSigned(ready, "tts_install", SHERPA_PKG, v.url, { package: SHERPA_PKG, url: v.url }, "Lädt Stimme …");
     };
-    const use = (pkg) => sendSigned(tids, "tts_engine", { package: pkg }, pkg === "system" ? "System-Stimme" : "Stimme gewechselt");
-    const remove = (pkg) => { if (confirm(`Offline-Stimme von ${where()} entfernen?`)) sendSigned(tids, "tts_uninstall", { package: pkg }, "Wird entfernt …"); };
+    const use = (pkg) => sendSigned(tids, "tts_engine", pkg, "", { package: pkg }, pkg === "system" ? "System-Stimme" : "Stimme gewechselt");
+    const remove = (pkg) => { if (confirm(`Offline-Stimme von ${where()} entfernen?`)) sendSigned(tids, "tts_uninstall", pkg, "", { package: pkg }, "Wird entfernt …"); };
     const drawCatalog = () => {
       if (!catalog) return;
       const list = catalog.voices.filter((v) => ui.lang === "all" || v.lang3 === ui.lang);
@@ -1452,7 +1485,9 @@
             h("small", { class: "row-sub" }, [ui.lang === "all" ? LANGS3[v.lang3] || v.lang3 : "", v.quality, mb(v.size)].filter(Boolean).join(" · "))),
           here ? h("span", { class: "badge ok" }, tids.length > 1 ? `auf ${here}` : "geladen") : null,
           h("button", { type: "button", class: "btn sm light", onclick: () => install(v) }, icon("download"), "Laden"));
-      })) : h("p", { class: "muted" }, "Keine Stimmen in dieser Sprache."));
+      })) : h("div", { class: "group" }, row(h("span", { class: "grow muted" }, catalog.live
+        ? "Für diese Sprache gibt es noch keine Stimme."
+        : "Diese Sprache steht in der eingebauten Liste nicht. Mit Internet am Laptop zeigt die Liste alle Stimmen."))));
       ui.catFoot.textContent = catalog.live ? `Liste von Hugging Face (sherpa-onnx ${catalog.ver}).` : `Liste nicht erreichbar, bekannte Stimmen von sherpa-onnx ${catalog.ver}.`;
     };
     return {
@@ -1461,14 +1496,21 @@
         ui.status = h("div", {});
         ui.cat = h("div", {}, h("div", { class: "empty", style: "padding:24px 0" }, h("span", { class: "spin", style: "display:inline-block" })));
         ui.catFoot = h("div", { class: "foot" });
-        const langs = [["deu", "Deutsch"], ["eng", "Englisch"], ["ara", "Arabisch"], ["all", "Alle"]];
-        const seg = h("div", { class: "seg small" }, ...langs.map(([k, l]) => h("button", { type: "button", "aria-selected": String(k === ui.lang), onclick: (e) => {
-          ui.lang = k; seg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-selected", String(b === e.currentTarget))); drawCatalog();
-        } }, l)));
+        // Languages the catalog has, the usual ones first
+        const FIRST = ["deu", "eng", "ara", "tur", "ukr", "fas", "rus", "pol", "bos", "hrv", "srp"];
+        ui.langSel = h("select", { class: "lang-sel", "aria-label": "Sprache" });
+        ui.langSel.addEventListener("change", () => { ui.lang = ui.langSel.value; drawCatalog(); });
+        const fillLangs = () => {
+          const have = [...new Set(catalog.voices.map((v) => v.lang3))];
+          have.sort((a, b) => ((FIRST.indexOf(a) + 1 || 99) - (FIRST.indexOf(b) + 1 || 99)) || (LANGS3[a] || a).localeCompare(LANGS3[b] || b, "de"));
+          for (const l of ["tur", "ukr"]) if (!have.includes(l)) have.splice(Math.min(have.length, 3), 0, l);
+          fill(ui.langSel, ...have.map((l) => h("option", { value: l }, LANGS3[l] || l)), h("option", { value: "all" }, "Alle Sprachen"));
+          ui.langSel.value = ui.lang;
+        };
         add(body, ui.status,
-          groupH("Stimme laden", seg), ui.cat, ui.catFoot,
+          groupH("Stimme laden", ui.langSel), ui.cat, ui.catFoot,
           h("div", { class: "foot" }, "Danach in AsTeRICS unter Stimme auswählen. Stimmen: sherpa-onnx und Piper, freie Lizenzen."));
-        loadCatalog().then(drawCatalog);
+        loadCatalog().then(() => { fillLangs(); drawCatalog(); });
       },
       refresh() {
         const st = states();
@@ -1518,6 +1560,88 @@
     };
   }
   const INSTALLABLE_TTS = [SHERPA_PKG, "com.CodeBySonu.VoxSherpa", "com.github.olga_yakovleva.rhvoice.android"];
+
+  // ---------------------------------------------------------------- page: Wi-Fi networks
+  // Spare networks: Android joins another saved network by itself when one is gone.
+  // The password travels encrypted with the kit key; the command is signed with it.
+  const WIFI_TYPES = [["WPA", "WPA2 / WPA3"], ["SAE", "nur WPA3"], ["OPEN", "Offen"]];
+  function wifiPage(tids) {
+    const ui = {};
+    const states = () => tids.map((tid) => g(tablets.get(tid) || {}, "state.wifiNetworks"));
+    const where = () => (tids.length > 1 ? `${tids.length} Tablets` : displayName(tids[0]));
+    const save = async () => {
+      const ssid = ui.ssid.value.trim(), pass = ui.pass.value, type = ui.type.value;
+      if (!ssid) { ui.ssid.focus(); return; }
+      if (type !== "OPEN" && pass.length < 8) { hud("Passwort braucht mindestens 8 Zeichen", "bad"); ui.pass.focus(); return; }
+      const ready = tids.filter((tid, i) => states()[i]);
+      if (!ready.length) { hud("Braucht die neue FreeKiosk-Version", "bad"); return; }
+      let enc = "";
+      try { if (type !== "OPEN") enc = await encryptFor("wifi", pass); }
+      catch (e) { hud(e.message, "bad"); return; }
+      const hidden = ui.hidden.checked;
+      if (await sendSigned(ready, "wifi_add", ssid, `${enc}|${type}|${hidden ? 1 : 0}`, { ssid, enc, type, hidden }, `„${ssid}“ wird gespeichert`)) {
+        ui.ssid.value = ""; ui.pass.value = ""; ui.hidden.checked = false;
+      }
+    };
+    const remove = (ssid) => {
+      if (confirm(`„${ssid}“ von ${where()} entfernen?`)) sendSigned(tids, "wifi_remove", ssid, "", { ssid }, "Wird entfernt …");
+    };
+    return {
+      title: "WLANs",
+      build(body) {
+        ui.list = h("div", {});
+        ui.ssid = h("input", { type: "text", placeholder: "Netzwerkname", spellcheck: "false", autocomplete: "off", maxlength: "32" });
+        ui.pass = h("input", { type: "password", placeholder: "mindestens 8 Zeichen", autocomplete: "new-password" });
+        ui.type = h("select", { "aria-label": "Sicherheit" }, ...WIFI_TYPES.map(([v, l]) => h("option", { value: v }, l)));
+        ui.type.addEventListener("change", () => { ui.pass.disabled = ui.type.value === "OPEN"; });
+        ui.hidden = h("input", { type: "checkbox" });
+        ui.pass.addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
+        add(body, ui.list,
+          groupH("WLAN hinzufügen"),
+          h("div", { class: "group" },
+            h("label", { class: "row" }, h("span", { class: "lbl" }, "Name"), ui.ssid),
+            h("label", { class: "row" }, h("span", { class: "lbl" }, "Passwort"), ui.pass),
+            h("label", { class: "row" }, h("span", { class: "lbl" }, "Sicherheit"), ui.type),
+            h("label", { class: "row" }, h("span", { class: "lbl" }, "Versteckt"), h("span", { class: "grow muted" }, "Name wird nicht angezeigt"), ui.hidden),
+            row(h("button", { type: "button", class: "btn sm", onclick: save }, icon("plus"), "Speichern"))),
+          h("div", { class: "foot" }, "Fällt ein WLAN aus, wechselt das Tablet von selbst in ein anderes gespeichertes. Das Passwort geht verschlüsselt mit dem Kit-Schlüssel über MQTT."));
+      },
+      refresh() {
+        const st = states();
+        const known = st.filter(Boolean);
+        const curs = tids.map((tid) => g(tablets.get(tid) || {}, "state.wifi.ssid") || g(tablets.get(tid) || {}, "state.wifiNetworks.current"));
+        const key = JSON.stringify([known, curs]);
+        if (isFocused(ui.list) || same(ui.list, key)) return;
+        if (!known.length) {
+          fill(ui.list, h("div", { class: "group" }, row(h("span", { class: "grow muted" }, "Braucht die neue FreeKiosk-Version (qr4) auf dem Tablet."))));
+          return;
+        }
+        const nets = new Map();
+        st.forEach((w, i) => (w ? w.saved || [] : []).forEach((x) => {
+          const e = nets.get(x.ssid) || { ssid: x.ssid, count: 0, current: 0, ours: false };
+          e.count++;
+          if (x.current || curs[i] === x.ssid) e.current++;
+          e.ours = e.ours || x.ours;
+          nets.set(x.ssid, e);
+        }));
+        const list = [...nets.values()].sort((a, b) => b.current - a.current || a.ssid.localeCompare(b.ssid, "de"));
+        const err = known.map((w) => w.lastError).find(Boolean);
+        const last = known.length === 1 ? known[0].lastAction : "";
+        fill(ui.list,
+          groupH("Gespeichert"),
+          h("div", { class: "group" }, ...(list.length ? list.map((x) => row(
+            h("span", { class: "nav-ic" }, icon("wifi")),
+            h("span", { class: "grow" }, h("span", { class: "row-title" }, x.ssid),
+              h("small", { class: "row-sub" }, [x.current ? (tids.length > 1 ? `verbunden auf ${x.current}` : "verbunden") : "", tids.length > 1 ? `auf ${x.count} von ${tids.length}` : ""].filter(Boolean).join(" · ") || "bereit")),
+            x.current && tids.length === 1 ? h("span", { class: "badge ok" }, "aktiv")
+              : h("button", { type: "button", class: "btn sm ghost", title: "Entfernen", "aria-label": `${x.ssid} entfernen`, onclick: () => remove(x.ssid) }, icon("trash"))))
+            : [row(h("span", { class: "grow muted" }, "Keine WLANs bekannt"))])),
+          err ? h("div", { class: "foot err" }, err) : last ? h("div", { class: "foot" }, last) : null,
+          known.some((w) => !w.complete) ? h("div", { class: "foot" }, "Android zeigt hier nur das aktuelle WLAN und die vom Kit gespeicherten.") : null,
+          known.some((w) => !w.signed) ? h("div", { class: "foot warn-t" }, "Ohne Kit-Schlüssel auf dem Tablet geht das nicht. Einmal mit einem neuen QR-Code einrichten.") : null);
+      },
+    };
+  }
 
   // ---------------------------------------------------------------- settings sheet
   function mirror(srcId, type, placeholder) {

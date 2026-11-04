@@ -183,7 +183,7 @@ class MainActivity : ReactActivity() {
     val ADB_SPECIAL_KEYS = setOf(
       "pin", "url", "lock_package", "config", "managed_apps", "dashboard_tiles",
       "mqtt_password", "auto_start", "auto_launch", "test_mode", "back_button_mode",
-      "pin_mode", "external_app_mode", "status_bar", "mqtt_admin_key",
+      "pin_mode", "external_app_mode", "status_bar", "mqtt_admin_key", "wifi_more",
       // Cloud enrollment over ADB. The dashboard's "Headless install (ADB)" snippet
       // has advertised --es cloud_token since the cloud shipped, but nothing read it.
       "cloud_token", "cloud_url"
@@ -194,7 +194,7 @@ class MainActivity : ReactActivity() {
 
     /** Never log these values: they are credentials, not settings. */
     val ADB_SENSITIVE_KEYS = setOf(
-      "pin", "rest_api_key", "mqtt_password", "mqtt_username", "cloud_token", "mqtt_admin_key"
+      "pin", "rest_api_key", "mqtt_password", "mqtt_username", "cloud_token", "mqtt_admin_key", "wifi_more"
     )
 
     /** Extras Android or FreeKiosk itself puts on the intent; never a config mistake. */
@@ -1834,11 +1834,15 @@ class MainActivity : ReactActivity() {
     }
 
     intent.getStringExtra("mqtt_admin_key")?.let {
-      // Signs app installs over MQTT (offline voices); kept natively, the JS side never needs it
-      if (it.length >= 32) {
-        getSharedPreferences(com.freekiosk.mqtt.TtsPackageBridge.PREFS, Context.MODE_PRIVATE)
-          .edit().putString(com.freekiosk.mqtt.TtsPackageBridge.KEY_ADMIN, it).apply()
-      }
+      // Signs commands that change the tablet over MQTT (voices, Wi-Fi); kept natively,
+      // the JS side never needs it
+      com.freekiosk.mqtt.AdminSignature.storeKey(this, it)
+    }
+
+    intent.getStringExtra("wifi_more")?.let {
+      // Spare Wi-Fi networks; Android switches to another saved one when one is gone
+      val saved = com.freekiosk.mqtt.WifiNetworksBridge.addFromConfig(this, it)
+      android.util.Log.i("FreeKiosk-ADB", "Saved $saved spare Wi-Fi network(s)")
     }
 
     intent.getStringExtra("mqtt_password")?.let {

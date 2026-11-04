@@ -153,6 +153,16 @@ function buildProvisioning(o) {
         if (!/^[A-Za-z0-9_.-]+$/.test(devName)) warnings.push("Name besser ohne Leerzeichen, z. B. tablet-01.");
       } else problems.push("Name fehlt.");
     }
+    // Spare networks: FreeKiosk saves them as Device Owner, Android switches by itself
+    const more = (fk.wifiMore || []).filter((w) => w.s && w.s !== ssid);
+    if (more.length) {
+      extras.wifi_more = JSON.stringify(more.map((w) => ({ s: w.s, p: w.p })));
+      more.forEach((w) => {
+        if (!w.p) problems.push(`Passwort für „${w.s}“ fehlt.`);
+        else if (w.p.length < 8) problems.push(`Passwort für „${w.s}“ zu kurz (mindestens 8 Zeichen).`);
+      });
+      if (new Set(more.map((w) => w.s)).size < more.length) warnings.push("Ein weiteres WLAN steht doppelt in der Liste.");
+    }
     const lines = (fk.extra || "").split(/\r?\n/);
     lines.forEach((line, i) => {
       if (!line.trim() || line.trim().startsWith("#")) return;

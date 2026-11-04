@@ -19,9 +19,6 @@ import com.freekiosk.DeviceAdminReceiver
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URL
-import java.security.MessageDigest
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 
 /**
  * Offline voices over MQTT: which text-to-speech engines are on the tablet, install or
@@ -34,9 +31,11 @@ import javax.crypto.spec.SecretKeySpec
  * 15 minutes, or not newer than the last accepted one, are refused. On top of that only
  * known TTS packages from https URLs on known hosts are accepted.
  *
- * Android uses one preferred engine and a Device Owner cannot set that preference. It
- * can hide apps, though: with the system engines hidden, the remaining engine is the one
- * every app (the WebView included) gets. "system" unhides them again.
+ * Android uses one preferred engine (Settings.Secure "tts_default_synth"). When
+ * FreeKiosk was granted WRITE_SECURE_SETTINGS once over ADB (USB or wireless debugging),
+ * it sets that preference directly. Otherwise it uses what a Device Owner can do: hide
+ * the system engines, so the remaining engine is the one every app (the WebView
+ * included) gets. "system" goes back to the tablet's own engine.
  */
 class TtsPackageBridge(
     private val context: Context,
@@ -46,12 +45,10 @@ class TtsPackageBridge(
 ) {
     companion object {
         private const val TAG = "TtsPackages"
-        const val PREFS = "FreeKioskAdmin"
-        const val KEY_ADMIN = "admin_key"
-        private const val KEY_LAST_TS = "last_signed_ts"
+        const val PREFS = AdminSignature.PREFS
+        const val KEY_ADMIN = AdminSignature.KEY_ADMIN
         private const val KEY_HIDDEN = "hidden_tts_engines"
         private const val KEY_SOURCE_PREFIX = "tts_source_"
-        private const val MAX_AGE_MS = 15 * 60 * 1000L
         private const val UNINSTALL_ACTION = "com.freekiosk.TTS_UNINSTALL_RESULT"
 
         /** Engines that ship with the tablet and get hidden when another engine is chosen. */
@@ -79,6 +76,8 @@ class TtsPackageBridge(
     private fun dpm() = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
     private fun admin() = ComponentName(context, DeviceAdminReceiver::class.java)
     private fun isOwner() = try { dpm().isDeviceOwnerApp(context.packageName) } catch (_: Exception) { false }
+    private fun canWriteSecure() =
+        context.checkSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED
 
     private fun ok(action: String) { lastAction = action; lastError = ""; onChanged() }
     private fun fail(message: String) { lastError = message; Log.w(TAG, message); onChanged() }
@@ -135,7 +134,8 @@ class TtsPackageBridge(
         out.put("busyAction", busyAction)
         out.put("lastAction", lastAction)
         out.put("lastError", lastError)
-        out.put("signed", !prefs.getString(KEY_ADMIN, null).isNullOrEmpty())
+        out.put("signed", AdminSignature.hasKey(context))
+        out.put("secureSettings", canWriteSecure())
         out.put("owner", isOwner())
         return out
     }
@@ -155,24 +155,8 @@ class TtsPackageBridge(
 
     // ─── Signature ───────────────────────────────────────────────────────────
 
-    /** Returns null when the command is authentic, otherwise the reason. */
-    private fun verify(cmd: String, params: JSONObject?): String? {
-        val key = prefs.getString(KEY_ADMIN, null)
-        if (key.isNullOrEmpty()) return "Kein Schlüssel auf dem Tablet. Mit einem neuen QR-Code einrichten."
-        if (params == null) return "Befehl ohne Daten"
-        val ts = params.optLong("ts", 0L)
-        val sig = params.optString("sig", "")
-        val now = System.currentTimeMillis()
-        if (ts <= 0L || kotlin.math.abs(now - ts) > MAX_AGE_MS) return "Befehl abgelaufen (Uhrzeit von Laptop und Tablet prüfen)"
-        if (ts <= prefs.getLong(KEY_LAST_TS, 0L)) return "Befehl schon verwendet"
-        val message = listOf(cmd, params.optString("package", ""), params.optString("url", ""), ts.toString()).joinToString("|")
-        val mac = Mac.getInstance("HmacSHA256")
-        mac.init(SecretKeySpec(key.toByteArray(Charsets.UTF_8), "HmacSHA256"))
-        val expected = mac.doFinal(message.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
-        if (!MessageDigest.isEqual(expected.toByteArray(), sig.lowercase().toByteArray())) return "Unterschrift passt nicht (anderer Schlüssel?)"
-        prefs.edit().putLong(KEY_LAST_TS, ts).apply()
-        return null
-    }
+    private fun verify(cmd: String, params: JSONObject?): String? =
+        AdminSignature.verify(context, cmd, params?.optString("package", "") ?: "", params?.optString("url", "") ?: "", params)
 
     // ─── Install / uninstall ─────────────────────────────────────────────────
 
@@ -251,6 +235,7 @@ class TtsPackageBridge(
     fun useEngine(params: JSONObject?) {
         verify("tts_engine", params)?.let { return fail(it) }
         val target = params!!.optString("package", "")
+        if (canWriteSecure()) return useEngineBySetting(target)
         if (!isOwner()) return fail("FreeKiosk ist keine Geräteverwaltung")
         try {
             val dpm = dpm()
@@ -276,4 +261,28 @@ class TtsPackageBridge(
             fail("Wechseln fehlgeschlagen: ${e.message}")
         }
     }
+
+    /** With WRITE_SECURE_SETTINGS: set Android's preferred engine, hide nothing. */
+    private fun useEngineBySetting(target: String) {
+        try {
+            // Engines hidden by an earlier choice come back first
+            val hidden = hiddenSet()
+            if (hidden.isNotEmpty() && isOwner()) {
+                for (pkg in hidden) try { dpm().setApplicationHidden(admin(), pkg, false) } catch (_: Exception) {}
+                prefs.edit().putStringSet(KEY_HIDDEN, emptySet()).apply()
+            }
+            val engine = if (target == "system") {
+                SYSTEM_ENGINES.firstOrNull { installedPackage(it) != null }
+                    ?: return fail("Keine System-Sprachausgabe gefunden")
+            } else {
+                if (visibleEngines().none { it.first == target }) return fail("Diese Sprachausgabe ist nicht installiert: $target")
+                target
+            }
+            Settings.Secure.putString(context.contentResolver, "tts_default_synth", engine)
+            ok(if (target == "system") "Sprachausgabe des Systems" else "Sprachausgabe gewechselt")
+        } catch (e: Exception) {
+            fail("Wechseln fehlgeschlagen: ${e.message}")
+        }
+    }
+
 }

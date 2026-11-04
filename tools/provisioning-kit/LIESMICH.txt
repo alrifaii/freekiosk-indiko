@@ -12,7 +12,8 @@ Windows:        Start.bat doppelklicken. Firewall-Frage mit "Zulassen" beantwort
                 (private Netzwerke). Das schwarze Fenster offen lassen.
 macOS, Linux:   start.command (braucht Python 3).
 
-Im Browser oeffnet sich das Kit mit zwei Bereichen.
+Im Browser oeffnet sich das Kit mit drei Bereichen: Tablets, Einrichten,
+Grid erstellen.
 
 
 Einrichten
@@ -22,29 +23,85 @@ Am Tablet: auf Werkseinstellungen zuruecksetzen, am ersten Willkommen-Bildschirm
 sechsmal tippen, QR scannen, mit "Weiter" durchklicken. FreeKiosk startet mit allen
 Einstellungen. Fuer das naechste Tablet "Naechstes Tablet" (zaehlt den Namen hoch).
 
+Weitere WLANs: bis zu fuenf Ausweich-WLANs (Name und Passwort). Das Tablet speichert
+sie und wechselt von selbst, wenn ein WLAN ausfaellt. Spaeter auch unter
+Tablets > Tablet > WLANs.
+
+Im QR steckt auch der Kit-Schluessel. Nur mit ihm nimmt ein Tablet Befehle an, die
+etwas installieren oder WLANs speichern. Ein zweiter Laptop braucht denselben
+Schluessel (Tablets > Regler-Symbol > Schluessel, kopieren und einfuegen).
+
 
 Tablets
 -------
 Alle Tablets mit demselben Kanal, live: Akku, WLAN, Bildschirm, Bluetooth, Benutzer.
 Ein Tablet antippen, oder mit "Auswaehlen" mehrere auf einmal steuern:
+  - Foto und Name: Bild der Person oder eine Farbe, bleibt nur in diesem Browser
   - neu laden, wecken, Helligkeit, Lautstaerke, Nachricht, Vorlesen
-  - Start-Seite wechseln (AsTeRICS Grid oder jede andere Adresse)
+  - Start-Seite: Schnellauswahl (AsTeRICS Grid, inDiKo, YouTube, Classroom, ANTON,
+    Klexikon, ARASAAC, Scratch) oder jede andere Adresse. Ist "Nur Start-Seite" an,
+    wird die neue Seite samt Unterseiten freigegeben.
+  - AsTeRICS Grid: Benutzer wechseln, Online-Konto anmelden, Grid oeffnen, Stimme,
+    Tempo und Tonhoehe, Vorlage aus der AsTeRICS-Bibliothek, Sprache, sperren und
+    entsperren, Entsperr-Code
+  - Bedienung: Scanning ein und aus, automatisch weiter, Tempo, Tasten zuruecksetzen
+  - Offline-Stimmen: Liste aller Stimmen (sherpa-onnx), laden, wechseln, entfernen.
+    Danach in AsTeRICS unter "Stimme" auswaehlen.
+  - WLANs: gespeicherte WLANs sehen, hinzufuegen, entfernen
   - Bluetooth: ein/aus, suchen, koppeln, entfernen
-  - AsTeRICS Grid: Benutzer wechseln, Online-Konto anmelden, Grid oeffnen,
-    Stimme, Tempo und Tonhoehe, Vorlage aus der AsTeRICS-Bibliothek laden,
-    Sprache, sperren/entsperren, Entsperr-Code, Scanning einschalten
 Akku unter 20 %: das Tablet zeigt einen Hinweis (solange das Kit offen ist).
 Der Browser verbindet sich direkt per WebSocket mit dem MQTT-Server.
-Eigene Grids: am Laptop auf grid.asterics.eu mit einem Online-Konto bearbeiten und
-das Konto im Kit am Tablet anmelden. Aenderungen kommen dann von selbst.
+
+
+Grid erstellen
+--------------
+Kalender: Tages-, Wochen- und Monatsplaene mit ARASAAC-Symbolen bauen und mit
+"An Tablets senden" direkt in AsTeRICS Grid laden. Vorhandene Grids bleiben.
+Eigene Dateien (.grd aus AsTeRICS, .obf/.obz aus anderen Programmen) einfach in das
+Feld ziehen und an Tablets senden. Auf dem Tablet muss AsTeRICS Grid offen sein.
+Dazu Links zu Werkzeugen rund um AsTeRICS (ARASAAC, Global Symbols, OpenSymbols).
+
+
+Offline-Stimmen
+---------------
+Die Stimmen sind kleine Apps (sherpa-onnx, freie Piper- und Coqui-Stimmen, je
+50 bis 150 MB). Das Tablet laedt sie selbst aus dem Internet und installiert sie
+still. Danach sprechen sie ohne Internet. Pro Tablet eine Offline-Stimme, eine neue
+ersetzt die alte. Nach dem Wechseln das Tablet einmal neu starten, dann zeigt
+AsTeRICS sie unter "Stimme".
+Besser mit WLAN-Debugging (siehe unten): dann setzt FreeKiosk die Stimme direkt als
+Standard, ohne die Samsung- und Google-Stimme zu verstecken.
 
 
 Taster
 ------
-taster\puck-taster.js ist ein Programm fuer Puck.js. Der Taster schickt Leertaste
-(kurz) und Enter (lang), meldet sich aber ohne Buchstabentasten an. Android blendet
-die Bildschirmtastatur deshalb nicht mehr aus. Einspielen per Bluetooth ueber
-https://www.espruino.com/ide, Anleitung steht oben in der Datei.
+taster\puck-taster.js ist ein Programm fuer Puck.js. Der Taster verhaelt sich wie
+die Leertaste: kurz druecken = weiter, lang (ab 0,4 s) = auswaehlen, wie die
+Standard-Einstellung von AsTeRICS ("Tasten zuruecksetzen" unter Bedienung). Er
+meldet sich ohne Buchstabentasten an, daher bleibt die Bildschirmtastatur.
+Einspielen per Bluetooth ueber https://www.espruino.com/ide, Anleitung oben in der
+Datei.
+
+
+WLAN-Debugging (einmal pro Tablet, optional)
+--------------------------------------------
+Ein einziges Recht kann FreeKiosk nur ueber ADB bekommen, nicht ueber den QR:
+WRITE_SECURE_SETTINGS. Damit
+  - bleibt die Bildschirmtastatur bei jedem Taster sichtbar, nicht nur beim Puck.js
+  - setzt FreeKiosk die Offline-Stimme sauber als Standard
+  - kann FreeKiosk seine Bedienungshilfe selbst einschalten
+Ohne USB-Kabel, mit dem Android-Werkzeug "platform-tools" am Laptop:
+  1. Tablet: unten rechts siebenmal tippen, PIN, in FreeKiosk die
+     Android-Einstellungen oeffnen. Tablet-Info > Softwareinformationen >
+     Buildnummer siebenmal tippen.
+  2. Entwickleroptionen > Wireless-Debugging (Drahtloses Debugging) einschalten >
+     Geraet mit Kopplungscode koppeln. Das Tablet zeigt IP:Port und einen Code.
+  3. Laptop:  adb pair IP:PORT CODE
+              adb connect IP:PORT   (der Port auf der Wireless-Debugging-Seite)
+              adb shell pm grant com.freekiosk android.permission.WRITE_SECURE_SETTINGS
+  4. Wireless Debugging wieder ausschalten.
+Laptop und Tablet muessen im selben WLAN sein. Das Recht bleibt, bis die App
+entfernt wird.
 
 
 Wichtig
@@ -52,13 +109,17 @@ Wichtig
 - Kommt die App vom Laptop, muessen Laptop und Tablets im selben WLAN sein. Viele
   Schul-WLANs trennen Geraete voneinander: dann Handy-Hotspot oder Quelle "Internet".
 - WLANs mit Benutzername (802.1X, eduroam) gehen im QR nicht.
-- WLAN-Passwort und PIN stehen im Klartext im QR. Ausdrucke wie Passwoerter behandeln.
+- WLAN-Passwoerter und PIN stehen im Klartext im QR. Ausdrucke wie Passwoerter
+  behandeln. Ueber MQTT gehen WLAN-Passwoerter nur verschluesselt.
 - Der oeffentliche MQTT-Server (broker.emqx.io) ist zum Testen. Wer den Kanal kennt,
-  kann die Tablets steuern. Fuer den Echtbetrieb einen eigenen Server mit Passwort.
+  sieht die Tablets und kann einfache Befehle schicken. Installieren und WLANs
+  speichern geht nur mit dem Kit-Schluessel. Fuer den Echtbetrieb einen eigenen
+  Server mit Passwort.
+- Gesendete Grid-Dateien liegen kurz (4 Minuten) auf dem MQTT-Server. Keine Fotos
+  oder Namen von Personen ueber einen oeffentlichen Server schicken.
 - Ein Taster, der sich als volle Tastatur anmeldet, blendet die Bildschirmtastatur
-  aus. Der PIN-Bildschirm hat dafuer ein eigenes Ziffernfeld. Fuer alles andere den
-  Taster wie unter "Taster" beschrieben einrichten, oder im Kit unter Tablets
-  Bluetooth kurz ausschalten.
+  aus. Der PIN-Bildschirm hat dafuer ein eigenes Ziffernfeld. Abhilfe: Puck.js-Taster
+  (siehe Taster) oder WLAN-Debugging (siehe oben).
 - Tablet wieder freigeben: unten rechts siebenmal tippen, PIN, unter Sicherheit
   "Device Owner entfernen", danach normal zuruecksetzen.
 
@@ -71,3 +132,14 @@ Fehlersuche
   Firewall oder WLAN trennt Laptop und Tablet.
 - Tablets bleiben leer: Kanal im Kit und am Tablet vergleichen (Tablets > Regler-Symbol).
 - Start.bat schliesst sich sofort: Meldung lesen, meist fehlt die .apk-Datei.
+- "Kein Schluessel auf dem Tablet": Tablet wurde vor dieser Version eingerichtet,
+  einmal mit neuem QR-Code einrichten.
+- "Unterschrift passt nicht": anderer Laptop mit anderem Kit-Schluessel.
+- "Befehl abgelaufen": Uhrzeit von Laptop und Tablet vergleichen.
+- Stimme geladen, AsTeRICS zeigt sie nicht: Tablet neu starten.
+
+
+Lizenzen
+--------
+Symbole: Material Symbols von Google (Apache 2.0). Kalender-Generator:
+Asterics-AAC-Helper (AGPL-3.0), Quelltext in tools/calendar-generator.

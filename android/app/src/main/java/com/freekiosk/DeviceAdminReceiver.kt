@@ -43,7 +43,7 @@ class DeviceAdminReceiver : android.app.admin.DeviceAdminReceiver() {
         const val PROVISIONING_CONFIG_PREFS = "FreeKioskProvisioningConfig"
         private val CLOUD_KEYS = setOf(KEY_TOKEN, KEY_CLOUD_URL, KEY_ORG_ID)
         private val SENSITIVE_KEYS = setOf(
-            "pin", "rest_api_key", "mqtt_password", "mqtt_username", "cloud_token", "mqtt_admin_key"
+            "pin", "rest_api_key", "mqtt_password", "mqtt_username", "cloud_token", "mqtt_admin_key", "wifi_more"
         )
 
         /**

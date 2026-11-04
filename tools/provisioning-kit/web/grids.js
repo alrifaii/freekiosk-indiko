@@ -13,17 +13,17 @@
 
   const TOOLS = [
     { title: "AsTeRICS Grid", text: "Grids selbst bauen und bearbeiten. Mit Online-Konto kommen Änderungen von selbst auf die Tablets.",
-      url: "https://grid.asterics.eu/", ic: "ag:th-large", color: "#0071e3" },
+      url: "https://grid.asterics.eu/", ic: "ag:th-large" },
     { title: "ARASAAC", text: "Piktogramme suchen, dieselben wie in AsTeRICS Grid.",
-      url: "https://arasaac.org/pictograms/search", ic: "image", color: "#8e44ad" },
+      url: "https://arasaac.org/pictograms/search", ic: "image" },
     { title: "Global Symbols", text: "Tafeln online bauen und drucken, viele freie Symbolsätze.",
-      url: "https://globalsymbols.com/", ic: "board", color: "#e8467c" },
+      url: "https://globalsymbols.com/", ic: "board" },
     { title: "OpenSymbols", text: "Freie Symbole aus vielen Sammlungen durchsuchen.",
-      url: "https://www.opensymbols.org/", ic: "search", color: "#ff9f0a" },
+      url: "https://www.opensymbols.org/", ic: "search" },
     { title: "Open Board Format", text: "Tafeln anderer Programme als .obf oder .obz: hier oben einfach hineinziehen.",
-      url: "https://www.openboardformat.org/", ic: "box", color: "#00a6a6" },
+      url: "https://www.openboardformat.org/", ic: "box" },
     { title: "AsTeRICS-Helfer", text: "Weitere Werkzeuge von AsTeRICS: Grids übersetzen, eigene Stimmen am PC.",
-      url: "https://github.com/asterics/Asterics-AAC-Helper", ic: "wand", color: "#5e5ce6" },
+      url: "https://github.com/asterics/Asterics-AAC-Helper", ic: "wand" },
   ];
 
   let studio = null;
@@ -32,7 +32,7 @@
     const body = $("g-body");
     const file = h("input", { type: "file", accept: ".grd,.json,.txt,.obf,.obz" });
     const drop = h("label", { class: "dropzone" }, file,
-      h("span", { class: "site-ic", style: "background:#34c759;margin:0 auto" }, icon("upload")),
+      h("span", { class: "site-ic lime", style: "margin:0 auto" }, icon("upload")),
       h("b", {}, "Datei an Tablets senden"),
       h("span", {}, "AsTeRICS-Datei (.grd) oder Tafel (.obf, .obz) hierher ziehen oder antippen"));
     file.addEventListener("change", () => { if (file.files[0]) takeFile(file.files[0]); file.value = ""; });
@@ -47,7 +47,7 @@
 
     studio = h("div", { class: "studio", hidden: true });
     const calendar = h("button", { type: "button", class: "tool", onclick: openCalendar },
-      h("span", { class: "site-ic", style: "background:#ff3b30" }, icon("ag:calendar-alt")),
+      h("span", { class: "site-ic own" }, icon("ag:calendar-alt")),
       h("b", {}, "Kalender"),
       h("small", {}, "Tages-, Wochen- und Monatspläne mit ARASAAC-Symbolen. Fertig verlinkt, gleich auf die Tablets."));
     fill(body,
@@ -56,7 +56,7 @@
       h("div", { class: "group-h" }, h("span", {}, "Mehr Werkzeuge")),
       h("div", { class: "tools" }, ...TOOLS.map((t) =>
         h("a", { class: "tool", href: t.url, target: "_blank", rel: "noopener" },
-          h("span", { class: "site-ic", style: `background:${t.color}` }, icon(t.ic)),
+          h("span", { class: "site-ic" }, icon(t.ic)),
           h("b", {}, t.title),
           h("small", {}, t.text, " ", h("span", { class: "ext" }, "Öffnen ↗"))))),
       h("p", { class: "foot", style: "margin-top:18px" },
@@ -68,7 +68,7 @@
     const frame = h("iframe", { src: "kalender/index.html?kit=1", title: "Kalender-Generator", allow: "clipboard-write" });
     fill(studio,
       h("div", { class: "studio-bar" },
-        h("span", { class: "site-ic", style: "background:#ff3b30;width:30px;height:30px;border-radius:8px" }, icon("ag:calendar-alt")),
+        h("span", { class: "site-ic own", style: "width:30px;height:30px;border-radius:9px;box-shadow:none" }, icon("ag:calendar-alt")),
         h("b", {}, "Kalender"),
         h("a", { class: "btn sm ghost", href: "kalender/index.html", target: "_blank", rel: "noopener" }, "Eigenes Fenster"),
         h("button", { type: "button", class: "icon-btn", "aria-label": "Schließen", onclick: () => { studio.hidden = true; studio.replaceChildren(); } }, icon("x"))),

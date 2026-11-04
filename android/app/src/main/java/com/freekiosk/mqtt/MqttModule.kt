@@ -139,6 +139,13 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
         )
     }
 
+    // Spare Wi-Fi networks: signed wifi_add / wifi_remove, saved as Device Owner
+    private val wifiNets: WifiNetworksBridge by lazy {
+        WifiNetworksBridge(reactContext.applicationContext) {
+            btPublishHandler.removeCallbacks(btPublishRunnable)
+            btPublishHandler.postDelayed(btPublishRunnable, 400)
+        }
+    }
     private val bt: BluetoothMqttBridge by lazy {
         BluetoothMqttBridge(reactContext.applicationContext) {
             btPublishHandler.removeCallbacks(btPublishRunnable)
@@ -429,6 +436,8 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
                     "ttsInstall" -> tts.install(params)
                     "ttsUninstall" -> tts.uninstall(params)
                     "ttsEngine" -> tts.useEngine(params)
+                    "wifiAdd" -> wifiNets.add(params)
+                    "wifiRemove" -> wifiNets.remove(params)
                     "setMode" -> {
                         // #209: When switching to a foreground mode (webview / media_player),
                         // bring FreeKiosk to the front from native code so the JS onSetMode
@@ -793,6 +802,13 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
             status.put("tts", tts.status())
         } catch (e: Exception) {
             status.put("tts", JSONObject().put("lastError", e.message ?: "error"))
+        }
+
+        // Saved Wi-Fi networks (names only)
+        try {
+            status.put("wifiNetworks", wifiNets.status())
+        } catch (e: Exception) {
+            status.put("wifiNetworks", JSONObject().put("lastError", e.message ?: "error"))
         }
 
         // Rotation
