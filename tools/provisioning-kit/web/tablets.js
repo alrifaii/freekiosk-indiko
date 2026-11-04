@@ -508,16 +508,29 @@
       return finish(res(true));
     }
     if (a === "speak") {
+      // Speaks like AsTeRICS does (its chosen voice) or, with plain, with the default
+      // voice of the browser, and says whether it really spoke and with which voice.
       var synth = window.speechSynthesis;
-      if (!synth) return finish(res(false, "Keine Sprachausgabe"));
-      var vc = tryf(function () { return S.getUserSettings().voiceConfig; }, {});
-      var u = new SpeechSynthesisUtterance(x.text || "Hallo");
-      var match = (synth.getVoices() || []).filter(function (v) { return (v.voiceURI || v.name) === vc.preferredVoice; })[0];
-      if (match) { u.lang = match.lang; try { u.voice = match; } catch (e) {} }
-      u.rate = vc.voiceRate || 1;
-      u.pitch = vc.voicePitch || 1;
-      synth.speak(u);
-      return finish(res(true));
+      if (!synth) return finish(res(false, "Keine Sprachausgabe im Browser"));
+      return withVoices(function (all) {
+        all = all || [];
+        var vc = x.plain ? {} : (tryf(function () { return S.getUserSettings().voiceConfig; }, {}) || {});
+        var u = new SpeechSynthesisUtterance(x.text || "Hallo");
+        var match = all.filter(function (v) { return (v.voiceURI || v.name) === vc.preferredVoice; })[0];
+        if (match) { u.lang = match.lang; try { u.voice = match; } catch (e) {} }
+        else if (x.lang) u.lang = x.lang;
+        u.rate = vc.voiceRate || 1;
+        u.pitch = vc.voicePitch || 1;
+        var who = match ? (match.name || match.voiceURI) : "Standard-Stimme";
+        var told = false, started = false;
+        var tell = function (ok, msg) { if (told) return; told = true; finish(res(ok, msg)); };
+        u.onstart = function () { started = true; };
+        u.onend = function () { tell(true, "Gesprochen mit " + who + " · " + all.length + " Stimmen sichtbar"); };
+        u.onerror = function (e) { tell(false, "Sprechen fehlgeschlagen (" + (e && e.error || "Fehler") + ")"); };
+        setTimeout(function () { tell(started, started ? "Spricht noch mit " + who : "Keine Ausgabe nach 12 s: Stimme lädt noch oder Tablet neu starten"); }, 12000);
+        synth.cancel();
+        synth.speak(u);
+      });
     }
     if (a === "app") {
       var patch = {};
@@ -1671,6 +1684,7 @@
       title: "Offline-Stimmen",
       build(body) {
         ui.status = h("div", {});
+        ui.check = h("div", {});
         ui.cat = h("div", {}, h("div", { class: "empty", style: "padding:24px 0" }, h("span", { class: "spin", style: "display:inline-block" })));
         ui.catFoot = h("div", { class: "foot" });
         // Languages the catalog has, the usual ones first
@@ -1684,12 +1698,13 @@
           fill(ui.langSel, ...have.map((l) => h("option", { value: l }, LANGS3[l] || l)), h("option", { value: "all" }, "Alle Sprachen"));
           ui.langSel.value = ui.lang;
         };
-        add(body, ui.status,
+        add(body, ui.check, ui.status,
           groupH("Stimme laden", ui.langSel), ui.cat, ui.catFoot,
           h("div", { class: "foot" }, "Danach in AsTeRICS unter Stimme auswählen. Stimmen: sherpa-onnx und Piper, freie Lizenzen."));
         loadCatalog().then(() => { fillLangs(); drawCatalog(); });
       },
       refresh() {
+        if (tids.length === 1) voiceCheck(ui.check, tids[0]);
         const st = states();
         const known = st.filter(Boolean);
         const key = JSON.stringify(known.map((t) => [t.active, t.busy, t.busyAction, t.lastAction, t.lastError, t.signed, t.owner, (t.engines || []).map((e) => [e.package, e.hidden, e.source])]));
@@ -1742,6 +1757,47 @@
             h("button", { type: "button", class: "link", onclick: () => { if (confirm(`${where()} neu starten?`)) sendAll(tids, "reboot", "", "Startet neu"); } }, "Neu starten")));
       },
     };
+  }
+  // The way from "installed" to "AsTeRICS speaks with it", one step at a time, so it is
+  // visible where it stops. Chrome and the WebView only use Android's default engine;
+  // the WebView picks it once per app start.
+  function voiceCheck(box, tid) {
+    const t = tablets.get(tid) || {};
+    const tts = g(t, "state.tts");
+    if (!tts) { fill(box); return; }
+    const sherpa = (tts.engines || []).find((e) => e.package === SHERPA_PKG);
+    const uses = !!sherpa && tts.active === SHERPA_PKG;
+    const pendingRestart = !!(tts.changedAt && tts.bootAt && tts.changedAt > tts.bootAt);
+    const unknownRestart = tts.bootAt == null; // older app: cannot tell, ask for a restart
+    const page = pageOf(tid);
+    const seen = page && page.voices ? page.voices.length : null;
+    const said = page && page.result && page.result.action === "speak" ? page.result : null;
+    const key = JSON.stringify([!!sherpa, sherpa && sherpa.source, uses, pendingRestart, unknownRestart, tts.secureSettings, seen, said && said.msg, said && said.ok]);
+    if (same(box, key)) return;
+    const step = (state, n, title, detail, action) => row(
+      h("span", { class: "ck " + state }, state === "ok" ? icon("check") : String(n)),
+      h("span", { class: "grow" }, h("span", { class: "row-title" }, title), detail ? h("small", { class: "row-sub" }, detail) : null),
+      action || null);
+    const btn = (label, fn) => h("button", { type: "button", class: "btn sm light", onclick: fn }, label);
+    fill(box,
+      groupH("Stimmen-Check"),
+      h("div", { class: "group" },
+        step(sherpa ? "ok" : "todo", 1, "Offline-Stimme auf dem Tablet", sherpa ? engineName(sherpa) : "Unten eine Stimme laden"),
+        step(uses ? "ok" : sherpa ? "warn" : "todo", 2, "Android spricht damit",
+          uses ? (tts.secureSettings ? "als Standard gesetzt" : "Samsung und Google sind versteckt") : sherpa ? "Unten bei der Stimme „Verwenden“ tippen" : ""),
+        step(!uses ? "todo" : pendingRestart ? "warn" : unknownRestart ? "info" : "ok", 3, "Tablet neu gestartet",
+          !uses ? "" : pendingRestart ? "Seit dem Wechsel noch nicht. AsTeRICS hört erst danach die neue Stimme."
+            : unknownRestart ? "Nach dem Wechsel einmal neu starten, erst dann hört AsTeRICS die neue Stimme." : "AsTeRICS nutzt die neue Stimme",
+          uses && (pendingRestart || unknownRestart) ? btn("Neu starten", () => { if (confirm(`${displayName(tid)} neu starten?`)) sendAll([tid], "reboot", "", "Startet neu"); }) : null),
+        step(uses ? "info" : "todo", 4, "Probe über FreeKiosk", "Spricht über Android, zu hören am Tablet",
+          btn("Abspielen", () => send(tid, "tts", "Hallo, ich bin die Stimme von FreeKiosk."))),
+        step(said ? (said.ok ? "ok" : "warn") : "todo", 5, "Probe in AsTeRICS",
+          said ? said.msg : seen != null ? `AsTeRICS sieht ${seen} ${seen === 1 ? "Stimme" : "Stimmen"}` : "AsTeRICS Grid muss offen sein",
+          btn("Abspielen", () => agent([tid], "speak", { text: "Hallo, ich bin die Stimme in AsTeRICS.", plain: true }, { sending: "Spricht …", label: "Gesprochen", reprobe: 0 }))),
+        h("button", { type: "button", class: "row nav", onclick: () => push(voicePage([tid])) },
+          h("span", { class: "ck info" }, "6"),
+          h("span", { class: "grow" }, h("span", { class: "row-title" }, "In AsTeRICS als Stimme wählen"), h("small", { class: "row-sub" }, "Grid › Stimme")))),
+      h("div", { class: "foot" }, "Browser am Tablet (auch AsTeRICS in FreeKiosk) hören nur die Stimmen der Sprachausgabe, die Android gerade nutzt. Darum Schritt 2 und 3."));
   }
   const INSTALLABLE_TTS = [SHERPA_PKG, "com.CodeBySonu.VoxSherpa", "com.github.olga_yakovleva.rhvoice.android"];
 

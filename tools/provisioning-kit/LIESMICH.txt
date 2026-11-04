@@ -78,8 +78,21 @@ Offline-Stimmen
 Die Stimmen sind kleine Apps (sherpa-onnx, freie Piper- und Coqui-Stimmen, je
 50 bis 150 MB). Das Tablet laedt sie selbst aus dem Internet und installiert sie
 still. Danach sprechen sie ohne Internet. Pro Tablet eine Offline-Stimme, eine neue
-ersetzt die alte. Nach dem Wechseln das Tablet einmal neu starten, dann zeigt
-AsTeRICS sie unter "Stimme".
+ersetzt die alte. Die Stimmen-App muss man nie oeffnen, sie hat keine Oberflaeche.
+
+Warum neu starten: Browser (auch AsTeRICS in FreeKiosk) hoeren nur die Stimmen der
+Sprachausgabe, die Android gerade als Standard nutzt, und merken sich diese beim
+Start. Darum zeigen manche Browser nur Samsung- und Google-Stimmen.
+
+Stimmen-Check (Tablets > Tablet > Offline-Stimmen, oben): sechs Schritte mit Haken.
+  1. Offline-Stimme auf dem Tablet      geladen?
+  2. Android spricht damit              ist sie der Standard?
+  3. Tablet neu gestartet               seit dem Wechsel? sonst "Neu starten"
+  4. Probe ueber FreeKiosk              spricht ueber Android, am Tablet hoeren
+  5. Probe in AsTeRICS                  spricht im Grid, meldet welche Stimme
+  6. In AsTeRICS als Stimme waehlen     oeffnet Grid > Stimme
+Klingt Schritt 4 neu, Schritt 5 aber noch wie die alte Stimme: Tablet neu starten.
+Bleiben beide stumm: Stimme noch einmal "Verwenden" oder eine andere laden.
 Besser mit WLAN-Debugging (siehe unten): dann setzt FreeKiosk die Stimme direkt als
 Standard, ohne die Samsung- und Google-Stimme zu verstecken.
 
@@ -162,7 +175,7 @@ Fehlersuche
   einmal mit neuem QR-Code einrichten.
 - "Unterschrift passt nicht": anderer Laptop mit anderem Kit-Schluessel.
 - "Befehl abgelaufen": Uhrzeit von Laptop und Tablet vergleichen.
-- Stimme geladen, AsTeRICS zeigt sie nicht: Tablet neu starten.
+- Stimme geladen, AsTeRICS zeigt sie nicht: Tablet neu starten, dann Stimmen-Check.
 - Grid senden: "Tablet erreicht den MQTT-Server nicht" heisst, AsTeRICS am Tablet
   kommt nicht an den wss://-Server. "Keine Antwort vom Kit": Kit-Fenster war zu.
 - Bildschirmfoto bleibt leer: Bildschirm ist aus, erst wecken.

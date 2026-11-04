@@ -136,6 +136,10 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
                 btPublishHandler.removeCallbacks(btPublishRunnable)
                 btPublishHandler.postDelayed(btPublishRunnable, 400)
             },
+            onEngineChanged = {
+                // FreeKiosk's own "Vorlesen" follows the new engine right away
+                btPublishHandler.postDelayed({ initNativeTts() }, 500)
+            },
         )
     }
 
@@ -184,16 +188,35 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
 
     private var tts: TextToSpeech? = null
     private var ttsReady: Boolean = false
+    private var ttsGeneration = 0
 
     init {
+        initNativeTts()
+    }
+
+    /** (Re)binds FreeKiosk's own speech output to Android's current engine. */
+    private fun initNativeTts() {
         try {
+            tts?.let { try { it.stop(); it.shutdown() } catch (_: Exception) {} }
+            tts = null
+            ttsReady = false
+            val generation = ++ttsGeneration
             // Use the system's preferred TTS engine so installed language packs (e.g. Chinese)
             // are available — the no-arg constructor may pick a different limited engine.
+            // (tts_default_synth is the setting's real name; a hidden engine is skipped so
+            // Android falls back to the visible one.)
             val preferredEngine = Settings.Secure.getString(
                 reactContext.contentResolver,
-                "tts_default_engine"
-            )
+                "tts_default_synth"
+            )?.takeIf { pkg ->
+                try {
+                    val pm = reactContext.packageManager
+                    pm.queryIntentServices(Intent("android.intent.action.TTS_SERVICE"), 0)
+                        .any { it.serviceInfo?.packageName == pkg }
+                } catch (_: Exception) { false }
+            }
             val listener = TextToSpeech.OnInitListener { status ->
+                if (generation != ttsGeneration) return@OnInitListener // an older, replaced instance
                 if (status == TextToSpeech.SUCCESS) {
                     ttsReady = true
                     Log.d(TAG, "TextToSpeech initialized (engine=$preferredEngine)")

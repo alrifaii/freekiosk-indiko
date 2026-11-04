@@ -42,6 +42,8 @@ class TtsPackageBridge(
     /** Downloads [url] and installs it silently; calls back (ok, message). */
     private val installer: (url: String, pkg: String, done: (Boolean, String) -> Unit) -> Unit,
     private val onChanged: () -> Unit,
+    /** Android's engine changed: speech objects bound to the old one must be rebuilt. */
+    private val onEngineChanged: () -> Unit = {},
 ) {
     companion object {
         private const val TAG = "TtsPackages"
@@ -49,6 +51,7 @@ class TtsPackageBridge(
         const val KEY_ADMIN = AdminSignature.KEY_ADMIN
         private const val KEY_HIDDEN = "hidden_tts_engines"
         private const val KEY_SOURCE_PREFIX = "tts_source_"
+        private const val KEY_CHANGED_AT = "tts_engine_changed_at"
         private const val UNINSTALL_ACTION = "com.freekiosk.TTS_UNINSTALL_RESULT"
 
         /** Engines that ship with the tablet and get hidden when another engine is chosen. */
@@ -80,6 +83,10 @@ class TtsPackageBridge(
         context.checkSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED
 
     private fun ok(action: String) { lastAction = action; lastError = ""; onChanged() }
+    private fun engineChanged() {
+        prefs.edit().putLong(KEY_CHANGED_AT, System.currentTimeMillis()).apply()
+        try { onEngineChanged() } catch (e: Exception) { Log.w(TAG, "Rebuilding speech failed: ${e.message}") }
+    }
     private fun fail(message: String) { lastError = message; Log.w(TAG, message); onChanged() }
 
     // ─── State ───────────────────────────────────────────────────────────────
@@ -129,6 +136,10 @@ class TtsPackageBridge(
         out.put("busyAction", busyAction)
         out.put("lastAction", lastAction)
         out.put("lastError", lastError)
+        // The WebView binds its speech engine once per app start: a change after the last
+        // boot is not heard in AsTeRICS until the tablet restarts
+        out.put("changedAt", prefs.getLong(KEY_CHANGED_AT, 0L))
+        out.put("bootAt", System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime())
         out.put("signed", AdminSignature.hasKey(context))
         out.put("secureSettings", canWriteSecure())
         out.put("owner", isOwner())
@@ -293,6 +304,7 @@ class TtsPackageBridge(
             if (target == "system") {
                 for (pkg in hidden) try { dpm.setApplicationHidden(admin(), pkg, false) } catch (_: Exception) {}
                 prefs.edit().putStringSet(KEY_HIDDEN, emptySet()).apply()
+                engineChanged()
                 return ok("Sprachausgabe des Systems")
             }
             val known = visibleEngines().map { it.first }.toSet() + hidden
@@ -306,6 +318,7 @@ class TtsPackageBridge(
                 if (dpm.setApplicationHidden(admin(), pkg, true)) hidden.add(pkg)
             }
             prefs.edit().putStringSet(KEY_HIDDEN, hidden).apply()
+            engineChanged()
             ok("Sprachausgabe gewechselt")
         } catch (e: Exception) {
             fail("Wechseln fehlgeschlagen: ${e.message}")
@@ -329,6 +342,7 @@ class TtsPackageBridge(
                 target
             }
             Settings.Secure.putString(context.contentResolver, "tts_default_synth", engine)
+            engineChanged()
             ok(if (target == "system") "Sprachausgabe des Systems" else "Sprachausgabe gewechselt")
         } catch (e: Exception) {
             fail("Wechseln fehlgeschlagen: ${e.message}")
