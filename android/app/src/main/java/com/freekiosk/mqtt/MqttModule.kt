@@ -116,7 +116,7 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
     private val btPublishHandler = Handler(Looper.getMainLooper())
     private val btPublishRunnable = Runnable { publishStatusNow() }
     // Offline voices: TTS engines, signed install/uninstall, engine choice
-    private val tts: TtsPackageBridge by lazy {
+    private val ttsPackages: TtsPackageBridge by lazy {
         TtsPackageBridge(
             reactContext.applicationContext,
             installer = { url, pkg, done ->
@@ -433,9 +433,9 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
                     "btScanStop" -> bt.stopScan()
                     "btPair" -> bt.pair(params?.optString("address", ""))
                     "btUnpair" -> bt.unpair(params?.optString("address", ""))
-                    "ttsInstall" -> tts.install(params)
-                    "ttsUninstall" -> tts.uninstall(params)
-                    "ttsEngine" -> tts.useEngine(params)
+                    "ttsInstall" -> ttsPackages.install(params)
+                    "ttsUninstall" -> ttsPackages.uninstall(params)
+                    "ttsEngine" -> ttsPackages.useEngine(params)
                     "wifiAdd" -> wifiNets.add(params)
                     "wifiRemove" -> wifiNets.remove(params)
                     "setMode" -> {
@@ -799,7 +799,7 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
 
         // Text-to-speech engines (offline voices)
         try {
-            status.put("tts", tts.status())
+            status.put("tts", ttsPackages.status())
         } catch (e: Exception) {
             status.put("tts", JSONObject().put("lastError", e.message ?: "error"))
         }
