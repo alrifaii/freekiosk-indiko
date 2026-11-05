@@ -137,8 +137,8 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
                 btPublishHandler.postDelayed(btPublishRunnable, 400)
             },
             onEngineChanged = {
-                // FreeKiosk's own "Vorlesen" follows the new engine right away
-                btPublishHandler.postDelayed({ initNativeTts() }, 500)
+                // An engine came or went: list the voices again
+                btPublishHandler.postDelayed({ com.freekiosk.speech.SpeechHub.refreshEngines() }, 500)
             },
         )
     }
@@ -186,71 +186,63 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
 
     // ==================== TTS ====================
 
-    private var tts: TextToSpeech? = null
-    private var ttsReady: Boolean = false
-    private var ttsGeneration = 0
+    // ==================== Speech ====================
+    // Everything FreeKiosk says goes through SpeechHub: built-in offline voices and the
+    // Samsung/Google engines side by side, the same voices AsTeRICS sees in the WebView.
+
+    private val speechStatusChanged: () -> Unit = {
+        btPublishHandler.removeCallbacks(btPublishRunnable)
+        btPublishHandler.postDelayed(btPublishRunnable, 600)
+    }
 
     init {
-        initNativeTts()
+        com.freekiosk.speech.SpeechHub.init(reactContext.applicationContext)
+        com.freekiosk.speech.SpeechHub.setStatusListener(speechStatusChanged)
+        // Engines hidden by the old way of choosing an offline voice come back: with the
+        // speech hub nothing needs to be hidden any more
+        btPublishHandler.postDelayed({
+            try {
+                if (ttsPackages.restoreHiddenEngines()) com.freekiosk.speech.SpeechHub.refreshEngines()
+            } catch (e: Exception) {
+                Log.w(TAG, "Restoring hidden speech engines failed: ${e.message}")
+            }
+        }, 1500)
     }
 
-    /** (Re)binds FreeKiosk's own speech output to Android's current engine. */
-    private fun initNativeTts() {
+    private fun speakText(text: String, voice: String = "", lang: String = "") {
         try {
-            tts?.let { try { it.stop(); it.shutdown() } catch (_: Exception) {} }
-            tts = null
-            ttsReady = false
-            val generation = ++ttsGeneration
-            // Use the system's preferred TTS engine so installed language packs (e.g. Chinese)
-            // are available — the no-arg constructor may pick a different limited engine.
-            // (tts_default_synth is the setting's real name; a hidden engine is skipped so
-            // Android falls back to the visible one.)
-            val preferredEngine = Settings.Secure.getString(
-                reactContext.contentResolver,
-                "tts_default_synth"
-            )?.takeIf { pkg ->
-                try {
-                    val pm = reactContext.packageManager
-                    pm.queryIntentServices(Intent("android.intent.action.TTS_SERVICE"), 0)
-                        .any { it.serviceInfo?.packageName == pkg }
-                } catch (_: Exception) { false }
-            }
-            val listener = TextToSpeech.OnInitListener { status ->
-                if (generation != ttsGeneration) return@OnInitListener // an older, replaced instance
-                if (status == TextToSpeech.SUCCESS) {
-                    ttsReady = true
-                    Log.d(TAG, "TextToSpeech initialized (engine=$preferredEngine)")
-                } else {
-                    Log.e(TAG, "TextToSpeech initialization failed: $status")
-                }
-            }
-            tts = if (!preferredEngine.isNullOrEmpty()) {
-                TextToSpeech(reactContext.applicationContext, listener, preferredEngine)
-            } else {
-                TextToSpeech(reactContext.applicationContext, listener)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize TTS: ${e.message}")
-        }
-    }
-
-    private fun speakText(text: String) {
-        try {
-            if (tts != null && ttsReady) {
-                val locale = detectLocaleForText(text)
-                val result = tts?.setLanguage(locale)
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    Log.w(TAG, "TTS language not supported: $locale, falling back to default")
-                    tts?.setLanguage(java.util.Locale.getDefault())
-                }
-                tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "mqtt_tts_${System.currentTimeMillis()}")
-                Log.d(TAG, "TTS speaking: $text (locale: $locale)")
-            } else {
-                Log.w(TAG, "TTS not ready")
-            }
+            com.freekiosk.speech.SpeechHub.say(text, voice, lang.ifEmpty {
+                detectLocaleForText(text).takeIf { it != java.util.Locale.getDefault() }?.toLanguageTag() ?: ""
+            })
         } catch (e: Exception) {
             Log.e(TAG, "TTS speak failed: ${e.message}")
         }
+    }
+
+    /** Signed voice_install {id, url, name, lang, ts, sig} over "voice_install|id|url|ts". */
+    private fun installVoice(params: JSONObject?) {
+        val id = params?.optString("id", "") ?: ""
+        val url = params?.optString("url", "") ?: ""
+        val hub = com.freekiosk.speech.SpeechHub
+        AdminSignature.verify(reactContext.applicationContext, "voice_install", id, url, params)?.let {
+            com.freekiosk.speech.EmbeddedVoices.reportError(it)
+            speechStatusChanged()
+            return
+        }
+        com.freekiosk.speech.EmbeddedVoices.install(id, params?.optString("name", "") ?: "", params?.optString("lang", "") ?: "", url) {
+            hub.embeddedChanged()
+        }
+    }
+
+    /** Signed voice_remove {id, ts, sig} over "voice_remove|id||ts". */
+    private fun removeVoice(params: JSONObject?) {
+        val id = params?.optString("id", "") ?: ""
+        AdminSignature.verify(reactContext.applicationContext, "voice_remove", id, "", params)?.let {
+            com.freekiosk.speech.EmbeddedVoices.reportError(it)
+            speechStatusChanged()
+            return
+        }
+        com.freekiosk.speech.EmbeddedVoices.remove(id) { com.freekiosk.speech.SpeechHub.embeddedChanged() }
     }
 
     private fun detectLocaleForText(text: String): java.util.Locale {
@@ -415,7 +407,7 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
                     "screenOff" -> ScreenController.turnScreenOff(reactApplicationContext)
                     "tts" -> {
                         val text = params?.optString("text", "") ?: ""
-                        if (text.isNotEmpty()) speakText(text)
+                        if (text.isNotEmpty()) speakText(text, params?.optString("voice", "") ?: "", params?.optString("lang", "") ?: "")
                     }
                     "toast" -> {
                         val text = params?.optString("text", "") ?: ""
@@ -461,6 +453,11 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
                     "ttsUninstall" -> ttsPackages.uninstall(params)
                     "ttsEngine" -> ttsPackages.useEngine(params)
                     "ttsVoiceData" -> ttsPackages.openVoiceData(params)
+                    "voiceInstall" -> installVoice(params)
+                    "voiceRemove" -> removeVoice(params)
+                    "voicePrefer" -> com.freekiosk.speech.SpeechHub.setPreferred(params?.optString("value", "") ?: "")
+                    "speechStop" -> com.freekiosk.speech.SpeechHub.stop()
+                    "speechBridge" -> com.freekiosk.speech.SpeechHub.setBridgeEnabled(params?.optBoolean("value", true) ?: true)
                     "wifiAdd" -> wifiNets.add(params)
                     "wifiRemove" -> wifiNets.remove(params)
                     "setMode" -> {
@@ -834,6 +831,13 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
             status.put("tts", ttsPackages.status())
         } catch (e: Exception) {
             status.put("tts", JSONObject().put("lastError", e.message ?: "error"))
+        }
+
+        // Voices FreeKiosk speaks with (built-in and Android engines), preferred output
+        try {
+            status.put("speech", com.freekiosk.speech.SpeechHub.status())
+        } catch (e: Exception) {
+            status.put("speech", JSONObject().put("lastError", e.message ?: "error"))
         }
 
         // Saved Wi-Fi networks (names only)
@@ -1271,10 +1275,7 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
             instance = null
             sensorManager?.unregisterListener(this)
             stopAudio()
-            tts?.stop()
-            tts?.shutdown()
-            tts = null
-            ttsReady = false
+            com.freekiosk.speech.SpeechHub.setStatusListener(null)
             Log.d(TAG, "MqttModule cleaned up")
         } catch (e: Exception) {
             Log.e(TAG, "Error during cleanup: ${e.message}")

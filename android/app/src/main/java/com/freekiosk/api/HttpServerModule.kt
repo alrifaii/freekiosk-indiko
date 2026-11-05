@@ -1425,6 +1425,7 @@ class HttpServerModule(private val reactContext: ReactApplicationContext) :
     @ReactMethod
     fun stopSpeaking(promise: Promise) {
         try {
+            try { com.freekiosk.speech.SpeechHub.stop() } catch (_: Throwable) {}
             tts?.stop()
             promise.resolve(true)
         } catch (e: Exception) {
@@ -1688,6 +1689,16 @@ class HttpServerModule(private val reactContext: ReactApplicationContext) :
     }
 
     private fun speakText(text: String, language: String? = null, voiceName: String? = null) {
+        // One speech output for REST, MQTT and web pages, with built-in and Android voices
+        try {
+            com.freekiosk.speech.SpeechHub.init(reactContext.applicationContext)
+            com.freekiosk.speech.SpeechHub.speak(
+                "rest-${System.currentTimeMillis()}", text, voiceName ?: "",
+                language ?: detectLocaleForText(text).toLanguageTag(), 1f, 1f, 1f)
+            return
+        } catch (e: Throwable) {
+            Log.w(TAG, "SpeechHub failed, using the old path: ${e.message}")
+        }
         try {
             if (tts != null && ttsReady) {
                 // If a specific voice name is requested, try to find and set it

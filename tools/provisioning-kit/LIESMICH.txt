@@ -49,10 +49,9 @@ Benutzer. Ein Tablet antippen, oder mit "Auswaehlen" mehrere auf einmal steuern:
     Tempo und Tonhoehe, Vorlage aus der AsTeRICS-Bibliothek, Sprache (App und Grid
     zusammen), sperren und entsperren, Entsperr-Code
   - Bedienung: Scanning ein und aus, Tasten zuruecksetzen
-  - Offline-Stimmen: Liste aller Stimmen (sherpa-onnx), laden, wechseln, entfernen.
-    Danach in AsTeRICS unter "Stimme" auswaehlen. Fuer Samsung- und Google-Stimmen
-    oeffnet "Am Tablet oeffnen" deren Download-Seite, dort am Tablet die Sprache
-    laden; danach geht sie ohne Internet.
+  - Stimmen: FreeKiosk spricht selbst. Eingebaute Offline-Stimmen laden und entfernen,
+    jede Stimme anhoeren (auch Samsung und Google), Standard-Stimme waehlen,
+    Stimmen-Check. Danach in AsTeRICS unter "Stimme" auswaehlen.
   - WLANs: gespeicherte WLANs sehen, hinzufuegen, entfernen
   - Bluetooth: ein/aus, suchen, koppeln, entfernen
 Akku unter 20 %: das Tablet zeigt einen Hinweis (solange das Kit offen ist).
@@ -73,28 +72,34 @@ Feld ziehen und an Tablets senden. Auf dem Tablet muss AsTeRICS Grid offen sein.
 Dazu Links zu Werkzeugen rund um AsTeRICS (ARASAAC, Global Symbols, OpenSymbols).
 
 
-Offline-Stimmen
----------------
-Die Stimmen sind kleine Apps (sherpa-onnx, freie Piper- und Coqui-Stimmen, je
-50 bis 150 MB). Das Tablet laedt sie selbst aus dem Internet und installiert sie
-still. Danach sprechen sie ohne Internet. Pro Tablet eine Offline-Stimme, eine neue
-ersetzt die alte. Die Stimmen-App muss man nie oeffnen, sie hat keine Oberflaeche.
+Stimmen
+-------
+FreeKiosk spricht selbst, mit zwei Arten von Stimmen nebeneinander:
+  - eingebaute Offline-Stimmen (sherpa-onnx, freie Piper- und Coqui-Stimmen, je
+    50 bis 150 MB). Das Tablet laedt sie aus dem Internet und entpackt sie selbst,
+    danach sprechen sie ohne Internet. Mehrere sind moeglich. "gut" ist fuer
+    Tablets die beste Wahl: klingt fast wie "sehr gut" und antwortet schneller.
+  - die Stimmen von Samsung und Google, die schon auf dem Tablet sind.
+AsTeRICS sieht alle in FreeKiosk unter "Stimme". In Android muss nichts umgestellt
+werden, ein Neustart ist nicht noetig, und eine eigene Stimmen-App braucht es nicht
+mehr (eine alte sherpa-App bietet das Kit zum Entfernen an).
 
-Warum neu starten: Browser (auch AsTeRICS in FreeKiosk) hoeren nur die Stimmen der
-Sprachausgabe, die Android gerade als Standard nutzt, und merken sich diese beim
-Start. Darum zeigen manche Browser nur Samsung- und Google-Stimmen.
+Standard-Stimme: spricht, wenn in AsTeRICS "Standard" gewaehlt ist. "Eingebaut"
+nimmt die eingebaute Stimme der Sprache, sonst die von Android.
 
-Stimmen-Check (Tablets > Tablet > Offline-Stimmen, oben): sechs Schritte mit Haken.
-  1. Offline-Stimme auf dem Tablet      geladen?
-  2. Android spricht damit              ist sie der Standard?
-  3. Tablet neu gestartet               seit dem Wechsel? sonst "Neu starten"
-  4. Probe ueber FreeKiosk              spricht ueber Android, am Tablet hoeren
-  5. Probe in AsTeRICS                  spricht im Grid, meldet welche Stimme
-  6. In AsTeRICS als Stimme waehlen     oeffnet Grid > Stimme
-Klingt Schritt 4 neu, Schritt 5 aber noch wie die alte Stimme: Tablet neu starten.
-Bleiben beide stumm: Stimme noch einmal "Verwenden" oder eine andere laden.
-Besser mit WLAN-Debugging (siehe unten): dann setzt FreeKiosk die Stimme direkt als
-Standard, ohne die Samsung- und Google-Stimme zu verstecken.
+Stimmen-Check (Tablets > Tablet > Stimmen, oben):
+  1. Stimme fuer die Sprache          gibt es eine?
+  2. Probe ueber FreeKiosk            spricht mit der Standard-Stimme, sagt welche
+  3. Probe in AsTeRICS                spricht im Grid
+  4. In AsTeRICS als Stimme waehlen   oeffnet Grid > Stimme
+
+Eingebaute Stimmen gehen auf 64-Bit-ARM-Tablets (Galaxy Tab A9+ und fast alle seit
+2019). Weitere Samsung- oder Google-Sprachen: "Am Tablet oeffnen", dort laden.
+
+Warum vorher nichts ging: der Browser von Android (auch in FreeKiosk) nimmt nur die
+Stimmen der Android-Standard-Sprachausgabe, merkt sie sich beim Start und uebergeht
+Sprachausgaben, die keine Laender angeben (die sherpa-App). Darum sah AsTeRICS
+nur Samsung und Google. FreeKiosk ersetzt diesen Teil des Browsers jetzt selbst.
 
 
 Taster
@@ -112,7 +117,6 @@ WLAN-Debugging (einmal pro Tablet, optional)
 Ein einziges Recht kann FreeKiosk nur ueber ADB bekommen, nicht ueber den QR:
 WRITE_SECURE_SETTINGS. Damit
   - bleibt die Bildschirmtastatur bei jedem Taster sichtbar, nicht nur beim Puck.js
-  - setzt FreeKiosk die Offline-Stimme sauber als Standard
   - kann FreeKiosk seine Bedienungshilfe selbst einschalten
 Ohne USB-Kabel, mit dem Android-Werkzeug "platform-tools" am Laptop:
   1. Tablet: unten rechts siebenmal tippen, PIN, in FreeKiosk die
@@ -175,7 +179,10 @@ Fehlersuche
   einmal mit neuem QR-Code einrichten.
 - "Unterschrift passt nicht": anderer Laptop mit anderem Kit-Schluessel.
 - "Befehl abgelaufen": Uhrzeit von Laptop und Tablet vergleichen.
-- Stimme geladen, AsTeRICS zeigt sie nicht: Tablet neu starten, dann Stimmen-Check.
+- Stimme geladen, AsTeRICS zeigt sie nicht: AsTeRICS am Tablet neu laden
+  (Kit: "Neu laden"), dann Stimmen-Check.
+- "Laden fehlgeschlagen": Internet am Tablet pruefen, freien Speicher (Stimme mal
+  drei) pruefen, noch einmal laden.
 - Grid senden: "Tablet erreicht den MQTT-Server nicht" heisst, AsTeRICS am Tablet
   kommt nicht an den wss://-Server. "Keine Antwort vom Kit": Kit-Fenster war zu.
 - Bildschirmfoto bleibt leer: Bildschirm ist aus, erst wecken.

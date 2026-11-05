@@ -193,6 +193,86 @@ android {
     }
 }
 
+// ---------------------------------------------------------------------------------------
+// Built-in offline voices: the sherpa-onnx speech library (Apache 2.0), native part only.
+// Its Kotlin side is android/app/src/main/java/com/k2fsa/sherpa/onnx/Tts.kt, copied from the
+// same version, because the JNI code reads those classes by name. The AAR is fetched once per
+// build and checked against its SHA-256; only arm64-v8a (Galaxy Tab A9+ and every tablet of the
+// last years) goes into the APK, which keeps it about 20 MB larger instead of 80 MB. Elsewhere
+// the built-in voices report "not available" and Samsung/Google voices still work.
+// -PnoSherpa builds without it (no internet), with the same fallback.
+// ---------------------------------------------------------------------------------------
+def sherpaVersion = "1.12.21"
+def sherpaSha256 = "4ce353cda9ab9e4c2e398dfd45aeb43cca1b5f97279051d354ebcdbd043e74ef"
+def sherpaUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-libs/resolve/main/android/aar/sherpa-onnx-${sherpaVersion}.aar"
+def sherpaAbis = ["arm64-v8a"]
+def sherpaDir = new File(layout.buildDirectory.get().asFile, "sherpa-onnx")
+def sherpaJniDir = new File(sherpaDir, "jniLibs")
+
+def sha256Of = { File f ->
+    def md = java.security.MessageDigest.getInstance("SHA-256")
+    f.withInputStream { is ->
+        byte[] buf = new byte[1 << 16]
+        int n
+        while ((n = is.read(buf)) > 0) md.update(buf, 0, n)
+    }
+    md.digest().encodeHex().toString()
+}
+
+task prepareSherpaOnnx {
+    description = "Fetches the sherpa-onnx native libraries for the built-in offline voices"
+    inputs.property("sherpaVersion", sherpaVersion)
+    inputs.property("sherpaAbis", sherpaAbis.join(","))
+    outputs.dir(sherpaJniDir)
+    onlyIf { !project.hasProperty('noSherpa') }
+    doLast {
+        sherpaDir.mkdirs()
+        def aar = new File(sherpaDir, "sherpa-onnx-${sherpaVersion}.aar")
+        if (!aar.exists() || sha256Of(aar) != sherpaSha256) {
+            def tmp = new File(sherpaDir, "download.tmp")
+            println "[sherpa-onnx] Downloading ${sherpaUrl}"
+            def conn = new URL(sherpaUrl).openConnection()
+            conn.setRequestProperty("User-Agent", "freekiosk-build")
+            conn.setConnectTimeout(30000)
+            conn.setReadTimeout(120000)
+            conn.inputStream.withStream { input -> tmp.withOutputStream { out -> out << input } }
+            def got = sha256Of(tmp)
+            if (got != sherpaSha256) {
+                tmp.delete()
+                throw new GradleException("sherpa-onnx AAR checksum mismatch: got ${got}, expected ${sherpaSha256}")
+            }
+            aar.delete()
+            if (!tmp.renameTo(aar)) throw new GradleException("Cannot move ${tmp} to ${aar}")
+        }
+        project.delete(sherpaJniDir)
+        sherpaAbis.each { abi ->
+            project.copy {
+                // libc++_shared.so comes with React Native already; a second copy would clash
+                from(project.zipTree(aar)) { include "jni/${abi}/*.so"; exclude "**/libc++_shared.so" }
+                into sherpaJniDir
+                eachFile { details -> details.path = details.path.substring("jni/".length()) }
+                includeEmptyDirs = false
+            }
+            def jni = new File(sherpaJniDir, "${abi}/libsherpa-onnx-jni.so")
+            if (!jni.isFile()) {
+                def names = project.zipTree(aar).files.collect { it.name }.unique().sort().join(", ")
+                throw new GradleException("sherpa-onnx AAR has no ${abi}/libsherpa-onnx-jni.so (files: ${names})")
+            }
+        }
+        println "[sherpa-onnx] Native libraries ready: " + sherpaJniDir.listFiles().collect { d -> d.name + "/" + d.list().join("+") }.join(", ")
+    }
+}
+
+android {
+    sourceSets {
+        main {
+            jniLibs.srcDir(sherpaJniDir)
+        }
+    }
+}
+
+tasks.matching { it.name == 'preBuild' }.configureEach { dependsOn prepareSherpaOnnx }
+
 // Fix autolinking bug where react-native-screens incorrectly registers RNSSafeAreaViewComponentDescriptor
 task fixAutolinkingBug {
     doLast {

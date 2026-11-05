@@ -15,9 +15,10 @@ import {
   Platform,
 } from 'react-native';
 
-const { HttpServerModule } = NativeModules;
+const { FreeKioskSpeech } = NativeModules;
 
 import KioskModule from '../utils/KioskModule';
+import { SPEECH_BRIDGE_JS } from '../utils/speechBridge';
 import UpdateModule from '../utils/UpdateModule';
 import Icon, { IconName } from './Icon';
 import RNFS from 'react-native-fs';
@@ -173,6 +174,39 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
   // frame is injected, so only it knows this nonce. Checks read the ref, so rotation bites at once.
   const [printerNonce, setPrinterNonce] = useState<string>(makePrinterNonce);
   const printerNonceRef = useRef<string>(printerNonce);
+
+  // FreeKiosk's own speechSynthesis (utils/speechBridge.ts). On unless turned off over MQTT
+  // (speech_bridge OFF); a change reloads the page so it gets the other implementation.
+  const [speechBridgeOn, setSpeechBridgeOn] = useState<boolean>(!!FreeKioskSpeech);
+  const speechBridgeOnRef = useRef<boolean>(speechBridgeOn);
+  React.useEffect(() => {
+    if (!FreeKioskSpeech) return;
+    FreeKioskSpeech.isBridgeEnabled?.()
+      .then((on: boolean) => {
+        if (on === speechBridgeOnRef.current) return;
+        speechBridgeOnRef.current = on;
+        setSpeechBridgeOn(on);
+        webViewRef.current?.reload();
+      })
+      .catch(() => {});
+    const sub = DeviceEventEmitter.addListener('FreeKioskSpeechEvent', (raw: string) => {
+      let ev: any = null;
+      try { ev = JSON.parse(raw); } catch { return; }
+      if (ev?.type === 'bridge') {
+        const on = ev.id === 'on';
+        if (on !== speechBridgeOnRef.current) {
+          speechBridgeOnRef.current = on;
+          setSpeechBridgeOn(on);
+          setTimeout(() => webViewRef.current?.reload(), 300);
+        }
+        return;
+      }
+      if (!speechBridgeOnRef.current) return;
+      // raw is JSON, a valid JS object literal
+      webViewRef.current?.injectJavaScript(`window.__fkSpeech && window.__fkSpeech.event(${raw}); true;`);
+    });
+    return () => sub.remove();
+  }, []);
 
   // Pre-compile URL filter patterns into RegExp for performance
   const compiledFilterPatterns = useMemo(() => {
@@ -574,188 +608,10 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
     document.addEventListener('input', sendInteraction, true);
     document.addEventListener('compositionupdate', sendInteraction, true);
 
-    // ==================== speechSynthesis Polyfill ====================
-    // Android WebView does not implement the Web Speech API (speechSynthesis).
-    // This polyfill bridges window.speechSynthesis.speak() to FreeKiosk's native
-    // Android TextToSpeech engine via postMessage → React Native → NativeModules.
-    // It also enumerates real TTS voices (Google TTS etc.) via async query.
-    // This allows web apps that use TTS to work transparently in kiosk mode.
-    (function() {
-      // Only polyfill if speechSynthesis is missing or non-functional
-      if (window.speechSynthesis && typeof window.speechSynthesis.speak === 'function') {
-        try {
-          var testVoices = window.speechSynthesis.getVoices();
-          // If native implementation returns voices, it might be real. Still polyfill
-          // because Android WebView speechSynthesis is notoriously broken (returns
-          // voices but speak() is a no-op). Only skip if there are > 2 voices.
-          if (testVoices && testVoices.length > 2) return;
-        } catch(e) {}
-      }
-
-      var _fkVoices = [];
-      var _fkVoicesLoaded = false;
-      var _fkVoicesChangedCbs = [];
-      var _fkSpeaking = false;
-      var _fkEndTimer = null;
-      var _fkPendingSpeak = null;  // utterance queued while voices not yet loaded
-
-      // Request real TTS voices from native Android
-      function _fkLoadVoices() {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'SPEECH_SYNTH_GET_VOICES'
-        }));
-      }
-
-      // Called from native via injectJavaScript when voices are ready
-      window.__fkSetVoices = function(voicesJson) {
-        try {
-          var voices = JSON.parse(voicesJson);
-          _fkVoices = voices.map(function(v, i) {
-            return {
-              default: v.default || (i === 0),
-              lang: v.lang || 'en-US',
-              localService: v.localService !== false,
-              name: v.name || ('Voice ' + i),
-              voiceURI: v.voiceUri || v.name || ('voice-' + i)
-            };
-          });
-          _fkVoicesLoaded = true;
-          // Fire voiceschanged event for each registered callback
-          var evt = new Event('voiceschanged');
-          _fkVoicesChangedCbs.forEach(function(cb) { try { cb(evt); } catch(e) {} });
-          _fkVoicesChangedCbs = [];
-          // If an utterance was queued before voices loaded, speak it now
-          if (_fkPendingSpeak) {
-            var u = _fkPendingSpeak;
-            _fkPendingSpeak = null;
-            synth.speak(u);
-          }
-        } catch(e) {
-          console.error('[FreeKiosk] Failed to parse voices:', e);
-        }
-      };
-
-      function FKSpeechSynthesisUtterance(text) {
-        this.text = text || '';
-        this.lang = '';
-        this.pitch = 1;
-        this.rate = 1;
-        this.volume = 1;
-        this.voice = null;
-        this.onstart = null;
-        this.onend = null;
-        this.onerror = null;
-        this.onpause = null;
-        this.onresume = null;
-        this.onmark = null;
-        this.onboundary = null;
-      }
-      window.SpeechSynthesisUtterance = FKSpeechSynthesisUtterance;
-
-      var synth = {
-        speaking: false,
-        pending: false,
-        paused: false,
-        speak: function(utterance) {
-          if (!utterance || !utterance.text) return;
-          // If voices not yet loaded, queue the utterance
-          if (!_fkVoicesLoaded) {
-            _fkPendingSpeak = utterance;
-            _fkLoadVoices();
-            return;
-          }
-          this.speaking = true;
-          _fkSpeaking = true;
-          // Pick the best voice: use utterance.voice if set, else find matching lang
-          var voiceUri = '';
-          var lang = utterance.lang || '';
-          if (utterance.voice && utterance.voice.voiceURI) {
-            voiceUri = utterance.voice.voiceURI;
-            lang = utterance.voice.lang || lang;
-          } else if (lang) {
-            // Find a voice matching the requested language
-            var exactMatch = _fkVoices.find(function(v) { return v.lang === lang; });
-            var prefixMatch = _fkVoices.find(function(v) { return v.lang.indexOf(lang.split('-')[0]) === 0; });
-            var bestVoice = exactMatch || prefixMatch || (utterance.voice || (_fkVoices[0] || null));
-            if (bestVoice && bestVoice.voiceURI) {
-              voiceUri = bestVoice.voiceURI;
-              lang = bestVoice.lang || lang;
-            }
-          }
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'SPEECH_SYNTH_SPEAK',
-            text: utterance.text,
-            lang: lang,
-            voiceUri: voiceUri,
-            rate: utterance.rate || 1,
-            pitch: utterance.pitch || 1,
-            volume: utterance.volume || 1
-          }));
-          if (utterance.onstart) {
-            try { utterance.onstart(new Event('start')); } catch(e) {}
-          }
-          // Estimate duration and fire onend (rough: 100ms per character for normal rate)
-          if (_fkEndTimer) clearTimeout(_fkEndTimer);
-          var estimatedMs = Math.max(500, utterance.text.length * 100 / (utterance.rate || 1));
-          var self = this;
-          var utt = utterance;
-          _fkEndTimer = setTimeout(function() {
-            self.speaking = false;
-            _fkSpeaking = false;
-            if (utt.onend) {
-              try { utt.onend(new Event('end')); } catch(e) {}
-            }
-          }, estimatedMs);
-        },
-        cancel: function() {
-          this.speaking = false;
-          _fkSpeaking = false;
-          _fkPendingSpeak = null;
-          if (_fkEndTimer) { clearTimeout(_fkEndTimer); _fkEndTimer = null; }
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SPEECH_SYNTH_CANCEL' }));
-        },
-        pause: function() { this.paused = true; },
-        resume: function() { this.paused = false; },
-        getVoices: function() {
-          // Trigger async load on first call (browsers typically call getVoices()
-          // and then listen for voiceschanged event to get the real list)
-          if (!_fkVoicesLoaded && _fkVoices.length === 0) {
-            _fkLoadVoices();
-          }
-          return _fkVoices.slice();
-        },
-        addEventListener: function(type, fn) {
-          if (type === 'voiceschanged') {
-            if (_fkVoicesLoaded) {
-              // Voices already loaded, fire immediately
-              try { fn(new Event('voiceschanged')); } catch(e) {}
-            } else {
-              _fkVoicesChangedCbs.push(fn);
-            }
-          }
-        },
-        removeEventListener: function(type, fn) {
-          if (type === 'voiceschanged') {
-            _fkVoicesChangedCbs = _fkVoicesChangedCbs.filter(function(cb) { return cb !== fn; });
-          }
-        }
-      };
-      Object.defineProperty(synth, 'onvoiceschanged', {
-        get: function() { return _fkVoicesChangedCbs[0] || null; },
-        set: function(fn) {
-          _fkVoicesChangedCbs = fn ? [fn] : [];
-          if (fn && _fkVoicesLoaded) {
-            try { fn(new Event('voiceschanged')); } catch(e) {}
-          }
-        }
-      });
-      Object.defineProperty(window, 'speechSynthesis', {
-        get: function() { return synth; },
-        configurable: true
-      });
-      // Start loading voices immediately
-      _fkLoadVoices();
-    })();
+    // ==================== speechSynthesis bridge ====================
+    // Voices of FreeKiosk itself: built-in offline voices plus Samsung/Google (see
+    // utils/speechBridge.ts). Also injected before the page's scripts; this run is a no-op then.
+    ${speechBridgeOn ? SPEECH_BRIDGE_JS : '// speech bridge off: Chrome speechSynthesis'}
 
     // PDF link interception: prevent <a download href="...pdf"> from triggering
     // the native Android DownloadManager — instead force a real navigation so
@@ -1047,32 +903,24 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
         const data = JSON.parse(message);
         if (data.type === 'FIVE_TAP_CLICK' && onUserInteraction) {
           onUserInteraction({ isTap: true, x: data.x, y: data.y });
-        } else if (data.type === 'SPEECH_SYNTH_SPEAK') {
-          // speechSynthesis polyfill: bridge to native Android TTS
-          if (HttpServerModule?.speak) {
-            HttpServerModule.speak(data.text || '', data.lang || '', data.voiceUri || '')
-              .catch((err: any) => console.error('[WebView] TTS speak failed:', err));
+        } else if (data.type === 'FK_SPEECH_SPEAK') {
+          // speechSynthesis bridge: FreeKiosk speaks, events come back as FreeKioskSpeechEvent
+          if (FreeKioskSpeech?.speak && speechBridgeOnRef.current) {
+            FreeKioskSpeech.speak(
+              String(data.id || ''), String(data.text || ''), String(data.voiceURI || ''), String(data.lang || ''),
+              Number(data.rate) || 1, Number(data.pitch) || 1, Number.isFinite(Number(data.volume)) ? Number(data.volume) : 1);
           }
-        } else if (data.type === 'SPEECH_SYNTH_CANCEL') {
-          // speechSynthesis polyfill: stop native TTS
-          if (HttpServerModule?.stopSpeaking) {
-            HttpServerModule.stopSpeaking()
-              .catch((err: any) => console.error('[WebView] TTS cancel failed:', err));
-          }
-        } else if (data.type === 'SPEECH_SYNTH_GET_VOICES') {
-          // speechSynthesis polyfill: query available TTS voices from native
-          if (HttpServerModule?.getTtsVoices) {
-            HttpServerModule.getTtsVoices()
-              .then((voices: any[]) => {
-                const voicesJson = JSON.stringify(voices || []);
-                // Use JSON.stringify on the already-stringified JSON to properly escape
-                // quotes and special chars for injection into a JS string literal
-                const safeArg = JSON.stringify(voicesJson);
-                webViewRef.current?.injectJavaScript(
-                  `window.__fkSetVoices && window.__fkSetVoices(${safeArg}); true;`
-                );
+        } else if (data.type === 'FK_SPEECH_CANCEL') {
+          FreeKioskSpeech?.cancel?.();
+        } else if (data.type === 'FK_SPEECH_VOICES') {
+          if (FreeKioskSpeech?.getVoices) {
+            FreeKioskSpeech.getVoices()
+              .then((json: string) => {
+                // JSON from the native side: an array literal the page can take as is
+                const list = typeof json === 'string' && json.trim().startsWith('[') ? json : '[]';
+                webViewRef.current?.injectJavaScript(`window.__fkSpeech && window.__fkSpeech.voices(${list}); true;`);
               })
-              .catch((err: any) => console.error('[WebView] TTS getVoices failed:', err));
+              .catch((err: any) => console.error('[WebView] Speech voices failed:', err));
           }
         } else if (data.type === 'PRINT_REQUEST') {
           // Handle print request from window.print()
@@ -1379,6 +1227,8 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
         javaScriptEnabled={true}
         domStorageEnabled={true}
         injectedJavaScript={combinedInjectedJavaScript}
+        // Speech bridge before the page's scripts (Android: from onPageStarted, best effort)
+        injectedJavaScriptBeforeContentLoaded={speechBridgeOn ? SPEECH_BRIDGE_JS : undefined}
         // Android ignores this (injection runs from onPageFinished), but the nonce rests on it.
         injectedJavaScriptForMainFrameOnly={true}
 

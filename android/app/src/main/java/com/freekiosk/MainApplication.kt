@@ -43,6 +43,7 @@ class MainApplication : Application(), ReactApplication {
           add(AudioControlPackage())
           add(FlashlightPackage())
           add(RotationControlPackage())
+          add(com.freekiosk.speech.SpeechPackage())
         },
     )
   }
@@ -50,5 +51,7 @@ class MainApplication : Application(), ReactApplication {
   override fun onCreate() {
     super.onCreate()
     loadReactNative(this)
+    // Binds the speech engines early, so the first page already finds its voices
+    com.freekiosk.speech.SpeechHub.init(this)
   }
 }

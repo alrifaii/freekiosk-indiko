@@ -394,7 +394,7 @@ Commands are sent by publishing to `{baseTopic}/{topicId}/set/{entity}`.
 | **lock** | lockDevice | any | Lock device screen |
 | **url** | setUrl | URL string | Navigate to URL |
 | **mode** | setMode | JSON: `{"mode":"webview","url":"https://..."}`, `{"mode":"external_app","package":"com.app"}` (omit `package` for the stored multi-app config), or `{"mode":"media_player"}` | Switch display mode at runtime (webview / external_app / media_player) |
-| **tts** | tts | text string | Text-to-speech (handled natively) |
+| **tts** | tts | text string, or JSON `{"text","voice","lang"}` | Text-to-speech (handled natively; `voice` is a `voiceURI` from `speech.voices`) |
 | **toast** | toast | text string | Show toast notification (handled natively) |
 | **launch_app** | launchApp | package name | Launch external app |
 | **execute_js** | executeJs | JS code string | Execute JavaScript in WebView |
@@ -433,6 +433,11 @@ Commands are sent by publishing to `{baseTopic}/{topicId}/set/{entity}`.
 | **wifi_remove** | wifiRemove | signed JSON `{"ssid","ts","sig"}` | Remove a saved network (never the one in use) |
 | **tts_voice_data** | ttsVoiceData | signed JSON `{"package","ts","sig"}`, empty package = active engine | Open the engine's own voice download screen on the tablet (someone taps there) |
 | **battery_exempt** | requestBatteryExemption | any | Show Android's battery optimization dialog on the tablet (state: `device.batteryExempt`) |
+| **voice_install** | voiceInstall | signed JSON `{"id","url","name","lang","ts","sig"}` | Download a sherpa-onnx VITS model (`.tar.bz2`, https) and unpack it as a built-in voice |
+| **voice_remove** | voiceRemove | signed JSON `{"id","ts","sig"}` | Remove a built-in voice |
+| **voice_prefer** | voicePrefer | `embedded` or an engine package (`com.samsung.SMT`, ...) | Output used when a page or command asks for no particular voice |
+| **speech_stop** | speechStop | any | Stop speaking |
+| **speech_bridge** | speechBridge | `ON` / `OFF` | FreeKiosk's own `speechSynthesis` in the WebView (default on); `OFF` leaves it to Chrome |
 
 
 
@@ -445,7 +450,8 @@ extras or as an ADB extra). The key never travels over MQTT.
 - `sig` = hex HMAC-SHA256 with the admin key over `cmd|a|b|ts`, where `ts` is the time
   in milliseconds. `a`/`b` are `package`/`url` for `tts_install`, `package`/empty for
   `tts_uninstall` and `tts_engine`, `ssid`/`enc|type|hidden(0 or 1)` for `wifi_add`,
-  `ssid`/empty for `wifi_remove`, `package`/empty for `tts_voice_data`.
+  `ssid`/empty for `wifi_remove`, `package`/empty for `tts_voice_data`, `id`/`url` for
+  `voice_install`, `id`/empty for `voice_remove`.
 - A command older than 15 minutes, or not newer than the last accepted one, is refused.
 - `enc` (the Wi-Fi password) is base64(12-byte IV + AES-256-GCM ciphertext + tag) with
   the key SHA-256(`"wifi|" + adminKey`). Empty for an open network.
@@ -454,12 +460,32 @@ extras or as an ADB extra). The key never travels over MQTT.
 - `tts_engine` sets Android's preferred engine when `WRITE_SECURE_SETTINGS` was granted
   over ADB; otherwise it hides the system engines (Device Owner) so the chosen one is used.
 
+### Speech
+
+FreeKiosk speaks itself (`SpeechHub`): web pages through its own `window.speechSynthesis`
+in the WebView, the `tts` command and the REST API all use the same voices, side by side:
+
+- built-in voices: sherpa-onnx VITS models (Piper, Coqui, MMS) under `files/voices/<id>`,
+  `voiceURI` `fk:emb:<id>`; arm64 only (the native library ships for `arm64-v8a`)
+- every installed Android speech engine, bound by package name, `voiceURI`
+  `fk:sys:<package>:<voice name>` (offline voices only)
+
+Chrome's own `speechSynthesis` on Android only knows the default engine, binds it once per
+app start and leaves out engines that report languages without a country, which is why
+pages saw no offline voice. Nothing needs to be switched in Android and no restart is needed.
+
+State `speech`: `bridge`, `preferred`, `androidDefault`, `engines` (`package`, `label`,
+`ready`, `voices`, `langs`), `voices` (`uri`, `name`, `lang`, `engine`), `embedded`
+(`available`, `error`, `voices`, `installing`, `phase` download/unpack, `done`, `total`,
+`lastAction`, `lastError`, `freeBytes`) and `last` (`voice`, `ok`, `message`, `at`) for the
+last `tts` command.
+
 Spare networks can also come with provisioning: `wifi_more` =
 `[{"s":"Name","p":"password"}, ...]` (`"t"`: `WPA` default, `SAE`, `WEP`, `OPEN`;
 `"h": true` for a hidden network).
 
 > [!NOTE]
-> Bluetooth, speech engine and Wi-Fi commands are MQTT only. The other commands have full parity with the [REST API](rest-api.md). Both interfaces dispatch through the same native command handler. Remote control and keyboard commands are handled natively via the AccessibilityService (cross-app) or Activity key dispatch (in-app). TTS and Toast are also handled natively (no JS round-trip).
+> Bluetooth, speech engine, voice and Wi-Fi commands are MQTT only. The other commands have full parity with the [REST API](rest-api.md). Both interfaces dispatch through the same native command handler. Remote control and keyboard commands are handled natively via the AccessibilityService (cross-app) or Activity key dispatch (in-app). TTS and Toast are also handled natively (no JS round-trip).
 
 
 ## Motion Detection

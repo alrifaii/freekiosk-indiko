@@ -757,7 +757,8 @@ class KioskMqttClient(
             "lock" -> "lockDevice" to null
 
             "url" -> "setUrl" to JSONObject().put("url", payload)
-            "tts" -> "tts" to JSONObject().put("text", payload)
+            // Plain text, or JSON {text, voice?, lang?} to speak with one voice (the kit's tests)
+            "tts" -> "tts" to (jsonPayload(payload)?.takeIf { it.has("text") } ?: JSONObject().put("text", payload))
             "toast" -> "toast" to JSONObject().put("text", payload)
             "launch_app" -> "launchApp" to JSONObject().put("package", payload)
             "execute_js" -> "executeJs" to JSONObject().put("code", payload)
@@ -805,6 +806,13 @@ class KioskMqttClient(
             "tts_uninstall" -> "ttsUninstall" to jsonPayload(payload)
             "tts_engine" -> "ttsEngine" to jsonPayload(payload)
             "tts_voice_data" -> "ttsVoiceData" to jsonPayload(payload)
+            // Built-in voices: signed {id, url, name, lang, ts, sig} / {id, ts, sig}
+            "voice_install" -> "voiceInstall" to jsonPayload(payload)
+            "voice_remove" -> "voiceRemove" to jsonPayload(payload)
+            // Preferred output when a page asks for no particular voice: "embedded" or an engine package
+            "voice_prefer" -> "voicePrefer" to JSONObject().put("value", jsonPayload(payload)?.optString("value") ?: payload.trim())
+            "speech_stop" -> "speechStop" to null
+            "speech_bridge" -> "speechBridge" to JSONObject().put("value", payload.trim().uppercase() != "OFF")
             // Shows Android's "allow running in the background" dialog on the tablet
             "battery_exempt" -> "requestBatteryExemption" to null
             "wifi_add" -> "wifiAdd" to jsonPayload(payload)

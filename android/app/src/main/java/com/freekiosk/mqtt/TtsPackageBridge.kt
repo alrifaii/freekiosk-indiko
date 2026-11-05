@@ -325,6 +325,24 @@ class TtsPackageBridge(
         }
     }
 
+    /**
+     * Shows the engines an earlier engine choice hid (Samsung, Google). FreeKiosk now speaks
+     * with every engine by name (SpeechHub), so hiding is no longer needed. Returns true when
+     * something came back.
+     */
+    fun restoreHiddenEngines(): Boolean {
+        val hidden = hiddenSet()
+        if (hidden.isEmpty() || !isOwner()) return false
+        var any = false
+        for (pkg in hidden) try { if (dpm().setApplicationHidden(admin(), pkg, false)) any = true } catch (_: Exception) {}
+        prefs.edit().putStringSet(KEY_HIDDEN, emptySet()).apply()
+        if (any) {
+            Log.i(TAG, "Speech engines visible again: $hidden")
+            engineChanged()
+        }
+        return any
+    }
+
     /** With WRITE_SECURE_SETTINGS: set Android's preferred engine, hide nothing. */
     private fun useEngineBySetting(target: String) {
         try {

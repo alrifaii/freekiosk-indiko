@@ -1103,12 +1103,12 @@
 
   // Speech output of Android (FreeKiosk), shared by the tablet and the selection page
   function renderSpeech(box, targets) {
-    const one = targets.length === 1 ? g(tablets.get(targets[0]) || {}, "state.tts") : null;
-    const key = JSON.stringify(one ? [one.active, one.busy, one.engines && one.engines.length] : targets);
-    if (same(box, key)) return;
-    const active = one && (one.engines || []).find((e) => e.package === one.active);
+    const one = targets.length === 1 ? speechOf(targets[0]) : null;
+    const emb = one && one.embedded;
+    const value = !one ? "" : emb && emb.installing ? "lädt …" : `Standard: ${engineLabel(one, one.preferred || "embedded")}`;
+    if (same(box, JSON.stringify([targets, value]))) return;
     fill(box, groupH("Sprachausgabe"), h("div", { class: "group" },
-      navRow("Offline-Stimmen", one ? (one.busy ? "lädt …" : engineName(active)) : "", () => push(ttsPage(targets)), "speak")));
+      navRow("Stimmen", value, () => push(voicesPage(targets)), "speak")));
   }
 
   // Wi-Fi networks saved on the tablet, shared by the tablet and the selection page
@@ -1334,8 +1334,8 @@
             row(h("button", { type: "button", class: "btn sm light", onclick: () => agent(tids, "speak", { text: "Hallo, so klinge ich." }, { label: "Spricht" }) }, icon("volume"), "Probe hören"))),
           ui.list,
           groupH("Mehr Stimmen"),
-          h("div", { class: "group" }, navRow("Offline-Stimmen laden", "", () => push(ttsPage(tids)), "speak")),
-          h("div", { class: "foot" }, "AsTeRICS zeigt die Stimmen der Sprachausgabe von Android. Neue Stimme laden, dann hier auswählen."));
+          h("div", { class: "group" }, navRow("Stimmen am Tablet", "eingebaut, Samsung, Google", () => push(voicesPage(tids)), "speak")),
+          h("div", { class: "foot" }, "AsTeRICS zeigt die Stimmen von FreeKiosk: eingebaute und die von Samsung und Google. Neue Stimme laden, dann hier auswählen."));
       },
       refresh() {
         const pages = tids.map(pageOf).filter(Boolean);
@@ -1566,240 +1566,275 @@
     };
   }
 
-  // ---------------------------------------------------------------- page: offline voices
-  // Offline voices come as speech engines for Android (sherpa-onnx, open source). One
-  // engine holds one voice; a new voice replaces the old one. The tablet downloads the
-  // APK itself and installs it silently as Device Owner, only after a signed command.
+  // ---------------------------------------------------------------- page: voices
+  // FreeKiosk speaks itself: built-in offline voices (sherpa-onnx models it downloads and
+  // unpacks) and every Android engine (Samsung, Google) by name, all side by side. AsTeRICS
+  // sees them in FreeKiosk's browser. Nothing to switch in Android, no restart.
   const SHERPA_PKG = "com.k2fsa.sherpa.onnx.tts.engine";
-  const HF_REPO = "csukuangfj2/sherpa-onnx-apk";
-  const HF_DIR = "tts-engine-new";
-  const VOICE_ARCH = "arm64-v8a"; // Galaxy Tab A9+ and nearly every tablet since 2019
-  const LANGS3 = { deu: "Deutsch", eng: "Englisch", ara: "Arabisch", tur: "Türkisch", ukr: "Ukrainisch", fra: "Französisch", ita: "Italienisch", spa: "Spanisch",
-    pol: "Polnisch", rus: "Russisch", fas: "Persisch", ces: "Tschechisch", slk: "Slowakisch", hun: "Ungarisch", ron: "Rumänisch", srp: "Serbisch", hrv: "Kroatisch",
-    bos: "Bosnisch", nld: "Niederländisch", por: "Portugiesisch", ell: "Griechisch", bul: "Bulgarisch", slv: "Slowenisch", zho: "Chinesisch", cmn: "Chinesisch" };
-  // Known files of release 2.0.1, used when the live list cannot be loaded
-  const VOICES_FALLBACK = ["2.0.1", [
-    ["deu", "vits-piper-de_DE-thorsten-medium", 89258298], ["deu", "vits-piper-de_DE-thorsten-high", 136395054],
-    ["deu", "vits-piper-de_DE-thorsten_emotional-medium", 101874038], ["deu", "vits-piper-de_DE-kerstin-low", 89131298],
-    ["deu", "vits-piper-de_DE-ramona-low", 89119004], ["deu", "vits-piper-de_DE-eva_k-x_low", 49568034],
-    ["deu", "vits-piper-de_DE-karlsson-low", 89131304], ["deu", "vits-piper-de_DE-pavoque-low", 89135394],
-    ["deu", "vits-piper-de_DE-dii-high", 89245967], ["deu", "vits-piper-de_DE-miro-high", 89205013],
-    ["deu", "vits-coqui-de-css10", 96254446], ["deu", "sherpa-onnx-supertonic-3-tts-int8-2026-05-11", 154880920],
-    ["eng", "vits-piper-en_US-amy-medium", 89233692], ["eng", "vits-piper-en_US-lessac-medium", 89245998],
-    ["eng", "vits-piper-en_GB-alba-medium", 89241890], ["eng", "vits-piper-en_US-ryan-medium", 89254178],
-    ["eng", "kitten-nano-en-v0_8-int8", 54536526],
-    ["ara", "vits-piper-ar_JO-kareem-medium", 89221422], ["ara", "vits-piper-ar_JO-kareem-low", 89192732],
-    ["ara", "vits-piper-ar_JO-SA_dii-high", 89049377], ["ara", "nabra-82m-arabic-int8", 104085741]]];
+  const OLD_TTS_APPS = [SHERPA_PKG, "com.CodeBySonu.VoxSherpa"];
+  const MODELS_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/";
+  const MODELS_API = "https://api.github.com/repos/k2-fsa/sherpa-onnx/releases";
+  // Known models, used when the list cannot be loaded (sizes come with the live list)
+  const MODELS_FALLBACK = [
+    "vits-piper-de_DE-thorsten-medium", "vits-piper-de_DE-thorsten-high", "vits-piper-de_DE-thorsten_emotional-medium",
+    "vits-piper-de_DE-kerstin-low", "vits-piper-de_DE-ramona-low", "vits-piper-de_DE-eva_k-x_low", "vits-piper-de_DE-karlsson-low",
+    "vits-piper-de_DE-pavoque-low", "vits-piper-de_DE-dii-high", "vits-piper-de_DE-miro-high", "vits-coqui-de-css10",
+    "vits-piper-en_US-amy-medium", "vits-piper-en_US-lessac-medium", "vits-piper-en_GB-alba-medium", "vits-piper-en_US-ryan-medium",
+    "vits-piper-ar_JO-kareem-medium", "vits-piper-ar_JO-kareem-low", "vits-piper-ar_JO-SA_dii-high"];
+  const ISO3 = { deu: "de", eng: "en", ara: "ar", tur: "tr", ukr: "uk", fas: "fa", rus: "ru", pol: "pl", bos: "bs", hrv: "hr", srp: "sr",
+    fra: "fr", ita: "it", spa: "es", por: "pt", nld: "nl", ces: "cs", slk: "sk", hun: "hu", ron: "ro", ell: "el", bul: "bg", slv: "sl", kmr: "ku" };
   const QUALITY = { x_low: "einfach", low: "einfach", medium: "gut", high: "sehr gut" };
-  function voiceInfo(file, size, ver) {
-    const m = file.match(/^sherpa-onnx-([\d.]+)-([\w-]+?)-([a-z]{3})-tts-engine-(.+)\.apk$/);
-    if (!m) return null;
-    const model = m[4];
-    let name = model, quality = "", kind = "";
-    const piper = model.match(/^vits-piper-([a-z]{2})_([A-Z]{2})-(.+?)(?:-(x_low|low|medium|high))?$/);
-    if (piper) {
-      name = piper[3].replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-      quality = QUALITY[piper[4]] || "";
-      kind = piper[1] + "-" + piper[2];
-    } else if (/supertonic/.test(model)) { name = "Supertonic"; kind = "mehrsprachig"; quality = "sehr gut"; }
-    else if (/kokoro/.test(model)) { name = "Kokoro"; quality = "sehr gut"; }
-    else if (/kitten/.test(model)) { name = "Kitten"; quality = "einfach"; }
-    else if (/coqui/.test(model)) { name = "Coqui " + model.replace(/^vits-coqui-\w+-/, ""); }
-    else if (/nabra/.test(model)) { name = "Nabra"; quality = "gut"; }
-    return { file, size, ver: m[1] || ver, arch: m[2], lang3: m[3], model, name, quality, kind,
-      url: `https://huggingface.co/${HF_REPO}/resolve/main/${HF_DIR}/${m[1] || ver}/${file}` };
-  }
-  let catalog = null;
-  async function listHf(path) {
-    let url = `https://huggingface.co/api/models/${HF_REPO}/tree/main/${path}`;
-    const out = [];
-    for (let page = 0; url && page < 20; page++) {
-      const r = await fetch(url, { cache: "no-cache" });
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      out.push(...await r.json());
-      const link = r.headers.get("link") || "";
-      const next = link.match(/<([^>]+)>;\s*rel="next"/);
-      url = next ? next[1] : null;
-    }
-    return out;
-  }
-  async function loadCatalog() {
-    if (catalog) return catalog;
-    const fallback = VOICES_FALLBACK[1].map(([l, model, size]) => voiceInfo(`sherpa-onnx-${VOICES_FALLBACK[0]}-${VOICE_ARCH}-${l}-tts-engine-${model}.apk`, size, VOICES_FALLBACK[0]));
-    try {
-      const dirs = (await listHf(HF_DIR)).filter((x) => x.type === "directory").map((x) => x.path.split("/").pop());
-      dirs.sort((a, b) => b.localeCompare(a, "en", { numeric: true }));
-      if (!dirs.length) throw new Error("leer");
-      const files = (await listHf(`${HF_DIR}/${dirs[0]}`)).filter((x) => x.type === "file");
-      const live = files.map((x) => voiceInfo(x.path.split("/").pop(), x.size, dirs[0])).filter((v) => v && v.arch === VOICE_ARCH);
-      if (!live.length) throw new Error("leer");
-      catalog = { voices: live, live: true, ver: dirs[0] };
-    } catch (e) {
-      catalog = { voices: fallback, live: false, ver: VOICES_FALLBACK[0], error: e.message };
-    }
-    return catalog;
-  }
+  const SAMPLES = { de: "Hallo, so klinge ich.", en: "Hello, this is how I sound.", ar: "مرحبا، هكذا يبدو صوتي.", tr: "Merhaba, sesim böyle.",
+    uk: "Привіт, так звучить мій голос.", ru: "Привет, так звучит мой голос.", fa: "سلام، صدای من این‌طور است.", pl: "Cześć, tak brzmi mój głos.",
+    fr: "Bonjour, voici ma voix.", es: "Hola, así suena mi voz.", it: "Ciao, questa è la mia voce.", bs: "Zdravo, ovako zvučim.", hr: "Bok, ovako zvučim.", sr: "Zdravo, ovako zvučim." };
+  const LANG_FIRST = ["de", "en", "ar", "tr", "uk", "fa", "ru", "pl", "bs", "hr", "sr"];
+  const baseLang = (l) => { const b = String(l || "").toLowerCase().replace("_", "-").split("-")[0]; return ISO3[b] || b; };
+  const words = (s) => s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   const mb = (n) => (n ? Math.round(n / 1048576) + " MB" : "");
-  function engineName(e) {
-    if (!e) return "–";
-    if (e.package === SHERPA_PKG) {
-      const v = e.source ? voiceInfo(e.source.split("/").pop(), 0, "") : null;
-      return v ? `${v.name}${v.kind && v.kind !== "mehrsprachig" ? " (" + v.kind + ")" : ""}` : "Offline-Stimme";
-    }
-    if (e.package === "com.samsung.SMT") return "Samsung";
-    if (e.package === "com.google.android.tts") return "Google";
-    return e.label || e.package;
+  function modelInfo(id, size, url) {
+    const u = url || MODELS_URL + id + ".tar.bz2";
+    let m = id.match(/^vits-(?:piper|mimic3)-([a-z]{2,3})_([A-Z]{2})-(.+?)(?:-(x_low|low|medium|high))?(?:-(int8|fp16))?$/);
+    if (m) return { id, size, url: u, lang: `${m[1]}-${m[2]}`, base: baseLang(m[1]), name: words(m[3]), quality: QUALITY[m[4]] || "", kind: `${m[1]}-${m[2]}`, small: !!m[5] };
+    m = id.match(/^vits-coqui-([a-z]{2})-(.+)$/);
+    if (m) return { id, size, url: u, lang: m[1], base: m[1], name: "Coqui " + m[2].toUpperCase(), quality: "", kind: "" };
+    m = id.match(/^vits-mms-([a-z]{3})$/);
+    if (m) return { id, size, url: u, lang: ISO3[m[1]] || m[1], base: baseLang(m[1]), name: "MMS", quality: "einfach", kind: "" };
+    return null;
   }
-  function ttsPage(tids) {
-    const ui = { lang: "deu" };
-    const states = () => tids.map((tid) => g(tablets.get(tid) || {}, "state.tts"));
+  let models = null;
+  async function loadModels() {
+    if (models) return models;
+    try {
+      const c = JSON.parse(localStorage.getItem("fkkit.models") || "null");
+      if (c && Date.now() - c.at < 86400000 && c.list && c.list.length) return (models = { list: c.list, live: true });
+    } catch (e) { /* no cache */ }
+    try {
+      const r = await fetch(MODELS_API + "/tags/tts-models", { headers: { Accept: "application/vnd.github+json" } });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const rel = await r.json();
+      const assets = new Map();
+      (rel.assets || []).forEach((a) => assets.set(a.name, a));
+      // Long releases come page by page
+      for (let page = 1; rel.id && page <= 20; page++) {
+        const r2 = await fetch(`${MODELS_API}/${rel.id}/assets?per_page=100&page=${page}`, { headers: { Accept: "application/vnd.github+json" } });
+        if (!r2.ok) break;
+        const more = await r2.json();
+        more.forEach((a) => assets.set(a.name, a));
+        if (more.length < 100) break;
+      }
+      const list = [...assets.values()].filter((a) => /\.tar\.bz2$/.test(a.name))
+        .map((a) => modelInfo(a.name.replace(/\.tar\.bz2$/, ""), a.size, a.browser_download_url)).filter(Boolean);
+      if (!list.length) throw new Error("leer");
+      models = { list, live: true };
+      try { localStorage.setItem("fkkit.models", JSON.stringify({ at: Date.now(), list })); } catch (e) { /* full */ }
+    } catch (e) {
+      models = { list: MODELS_FALLBACK.map((id) => modelInfo(id, 0)).filter(Boolean), live: false, error: e.message };
+    }
+    return models;
+  }
+  const speechOf = (tid) => g(tablets.get(tid) || {}, "state.speech");
+  function engineLabel(sp, engine) {
+    if (engine === "embedded") return "Eingebaut";
+    const e = ((sp && sp.engines) || []).find((x) => x.package === engine);
+    return (e && e.label) || ({ "com.samsung.SMT": "Samsung", "com.google.android.tts": "Google" })[engine] || engine;
+  }
+  // The language the grid speaks, else the tablet's
+  function gridLang(tid) {
+    const p = pageOf(tid) || {};
+    return baseLang(p.contentLang || (p.app && p.app.lang) || p.browserLang || "de") || "de";
+  }
+
+  function voicesPage(tids) {
+    const ui = { lang: tids.length ? gridLang(tids[0]) : "de" };
     const where = () => (tids.length > 1 ? `${tids.length} Tablets` : displayName(tids[0]));
-    const install = (v) => {
-      const ready = tids.filter((tid, i) => states()[i]);
-      if (!ready.length) { hud("Braucht die neue FreeKiosk-Version", "bad"); return; }
-      if (!confirm(`„${v.name}“ (${LANGS3[v.lang3] || v.lang3}, ${mb(v.size)}) auf ${where()} laden?\nErsetzt eine vorhandene Offline-Stimme. Das Tablet lädt die Datei selbst, am besten im WLAN.`)) return;
-      sendSigned(ready, "tts_install", SHERPA_PKG, v.url, { package: SHERPA_PKG, url: v.url }, "Lädt Stimme …");
+    const ready = () => tids.filter((tid) => speechOf(tid));
+    const needNew = () => { hud("Braucht die neue FreeKiosk-Version (qr9)", "bad"); return false; };
+    const install = (m) => {
+      const r = ready();
+      if (!r.length) return needNew();
+      if (!confirm(`„${m.name}“ (${langLabel(m.base)}${m.size ? ", " + mb(m.size) : ""}) auf ${where()} laden?\nDas Tablet lädt die Stimme selbst und entpackt sie, am besten im WLAN. Danach geht sie ohne Internet.`)) return false;
+      return sendSigned(r, "voice_install", m.id, m.url, { id: m.id, url: m.url, name: m.name, lang: m.lang }, "Lädt Stimme …");
     };
-    const use = (pkg) => sendSigned(tids, "tts_engine", pkg, "", { package: pkg }, pkg === "system" ? "System-Stimme" : "Stimme gewechselt");
-    const remove = (pkg) => { if (confirm(`Offline-Stimme von ${where()} entfernen?`)) sendSigned(tids, "tts_uninstall", pkg, "", { package: pkg }, "Wird entfernt …"); };
+    const removeVoice = (id, name) => { if (confirm(`„${name}“ von ${where()} entfernen?`)) sendSigned(ready(), "voice_remove", id, "", { id }, "Wird entfernt …"); };
+    const prefer = (value, label) => (ready().length ? sendAll(ready(), "voice_prefer", value, `Standard: ${label}`) : needNew());
+    const probe = (uri, lang, label) => (ready().length
+      ? sendAll(ready(), "tts", JSON.stringify({ text: SAMPLES[baseLang(lang)] || SAMPLES.de, voice: uri, lang }), label ? `Probe: ${label}` : "Spricht")
+      : needNew());
     const drawCatalog = () => {
-      if (!catalog) return;
-      const list = catalog.voices.filter((v) => ui.lang === "all" || v.lang3 === ui.lang);
-      const rankQ = { "sehr gut": 0, gut: 1, einfach: 2, "": 3 };
-      list.sort((a, b) => (/glados|turret/i.test(a.model) - /glados|turret/i.test(b.model)) || (rankQ[a.quality] - rankQ[b.quality]) || a.name.localeCompare(b.name, "de"));
-      const installed = states().map((t) => t && (t.engines || []).find((e) => e.package === SHERPA_PKG)).map((e) => e && e.source);
-      fill(ui.cat, list.length ? h("div", { class: "group" }, ...list.map((v) => {
-        const here = installed.filter((src) => src === v.url).length;
+      if (!models) return;
+      const list = models.list.filter((m) => m.base === ui.lang);
+      // "gut" (Piper medium) first: on a tablet it answers faster than "sehr gut" and sounds nearly the same
+      const rankQ = { gut: 0, "sehr gut": 1, einfach: 2, "": 3 };
+      list.sort((a, b) => (/glados|turret/i.test(a.id) - /glados|turret/i.test(b.id)) || (a.small - b.small) || (rankQ[a.quality] - rankQ[b.quality]) || a.name.localeCompare(b.name, "de"));
+      const installed = new Map();
+      tids.forEach((tid) => ((g(speechOf(tid) || {}, "embedded.voices")) || []).forEach((v) => installed.set(v.id, (installed.get(v.id) || 0) + 1)));
+      const key = JSON.stringify([ui.lang, list.length, [...installed]]);
+      if (same(ui.cat, key)) return;
+      const regions = new Set(list.map((m) => m.kind).filter(Boolean)).size > 1; // en-US and en-GB side by side
+      fill(ui.cat, list.length ? h("div", { class: "group" }, ...list.map((m) => {
+        const here = installed.get(m.id) || 0;
         return row(
-          h("span", { class: "grow" }, h("span", { class: "row-title" }, v.name, v.kind ? h("span", { class: "muted" }, " · " + v.kind) : null),
-            h("small", { class: "row-sub" }, [ui.lang === "all" ? LANGS3[v.lang3] || v.lang3 : "", v.quality, mb(v.size)].filter(Boolean).join(" · "))),
+          h("span", { class: "grow" }, h("span", { class: "row-title" }, m.name, regions && m.kind ? h("span", { class: "muted" }, " · " + m.kind) : null),
+            h("small", { class: "row-sub" }, [m.quality === "gut" ? "gut, empfohlen" : m.quality, m.small ? "klein" : "", mb(m.size)].filter(Boolean).join(" · ") || " ")),
           here ? h("span", { class: "badge ok" }, tids.length > 1 ? `auf ${here}` : "geladen") : null,
-          h("button", { type: "button", class: "btn sm light", onclick: () => install(v) }, icon("download"), "Laden"));
-      })) : h("div", { class: "group" }, row(h("span", { class: "grow muted" }, catalog.live
-        ? "Für diese Sprache gibt es noch keine Stimme."
-        : "Diese Sprache steht in der eingebauten Liste nicht. Mit Internet am Laptop zeigt die Liste alle Stimmen."))));
-      ui.catFoot.textContent = catalog.live ? `Liste von Hugging Face (sherpa-onnx ${catalog.ver}).` : `Liste nicht erreichbar, bekannte Stimmen von sherpa-onnx ${catalog.ver}.`;
+          h("button", { type: "button", class: "btn sm light", onclick: () => install(m) }, icon("download"), here ? "Neu laden" : "Laden"));
+      })) : h("div", { class: "group" }, row(h("span", { class: "grow muted" }, models.live
+        ? "Für diese Sprache gibt es keine eingebaute Stimme. Samsung oder Google haben vielleicht eine (unten)."
+        : "Diese Sprache steht in der kurzen Liste nicht. Mit Internet am Laptop zeigt die Liste alle Stimmen."))));
+      ui.catFoot.textContent = models.live ? "Stimmen von sherpa-onnx (Piper, Coqui), freie Lizenzen." : "Liste nicht erreichbar, bekannte Stimmen von sherpa-onnx.";
+    };
+    const fillLangs = () => {
+      const have = new Set(LANG_FIRST.slice(0, 5));
+      (models ? models.list : []).forEach((m) => have.add(m.base));
+      tids.forEach((tid) => ((speechOf(tid) || {}).voices || []).forEach((v) => have.add(baseLang(v.lang))));
+      have.add(ui.lang);
+      const list = [...have].filter((l) => l && l !== "und");
+      list.sort((a, b) => ((LANG_FIRST.indexOf(a) + 1 || 99) - (LANG_FIRST.indexOf(b) + 1 || 99)) || langLabel(a).localeCompare(langLabel(b), "de"));
+      if (same(ui.langSel, JSON.stringify(list))) return;
+      fill(ui.langSel, ...list.map((l) => h("option", { value: l }, langLabel(l))));
+      ui.langSel.value = ui.lang;
     };
     return {
-      title: "Offline-Stimmen",
+      title: "Stimmen",
       build(body) {
-        ui.status = h("div", {});
         ui.check = h("div", {});
+        ui.prefer = h("div", {});
+        ui.voices = h("div", {});
         ui.cat = h("div", {}, h("div", { class: "empty", style: "padding:24px 0" }, h("span", { class: "spin", style: "display:inline-block" })));
         ui.catFoot = h("div", { class: "foot" });
-        // Languages the catalog has, the usual ones first
-        const FIRST = ["deu", "eng", "ara", "tur", "ukr", "fas", "rus", "pol", "bos", "hrv", "srp"];
+        ui.more = h("div", {});
         ui.langSel = h("select", { class: "lang-sel", "aria-label": "Sprache" });
-        ui.langSel.addEventListener("change", () => { ui.lang = ui.langSel.value; drawCatalog(); });
-        const fillLangs = () => {
-          const have = [...new Set(catalog.voices.map((v) => v.lang3))];
-          have.sort((a, b) => ((FIRST.indexOf(a) + 1 || 99) - (FIRST.indexOf(b) + 1 || 99)) || (LANGS3[a] || a).localeCompare(LANGS3[b] || b, "de"));
-          for (const l of ["tur", "ukr"]) if (!have.includes(l)) have.splice(Math.min(have.length, 3), 0, l);
-          fill(ui.langSel, ...have.map((l) => h("option", { value: l }, LANGS3[l] || l)), h("option", { value: "all" }, "Alle Sprachen"));
-          ui.langSel.value = ui.lang;
-        };
-        add(body, ui.check, ui.status,
-          groupH("Stimme laden", ui.langSel), ui.cat, ui.catFoot,
-          h("div", { class: "foot" }, "Danach in AsTeRICS unter Stimme auswählen. Stimmen: sherpa-onnx und Piper, freie Lizenzen."));
-        loadCatalog().then(() => { fillLangs(); drawCatalog(); });
+        ui.langSel.addEventListener("change", () => { ui.lang = ui.langSel.value; ui.redraw(); });
+        ui.redraw = () => { this.refresh(true); drawCatalog(); };
+        add(body, ui.check, ui.prefer, ui.voices, groupH("Eingebaute Stimme laden"), ui.cat, ui.catFoot, ui.more);
+        loadModels().then(() => { fillLangs(); drawCatalog(); });
       },
-      refresh() {
-        if (tids.length === 1) voiceCheck(ui.check, tids[0]);
-        const st = states();
-        const known = st.filter(Boolean);
-        const key = JSON.stringify(known.map((t) => [t.active, t.busy, t.busyAction, t.lastAction, t.lastError, t.signed, t.owner, (t.engines || []).map((e) => [e.package, e.hidden, e.source])]));
-        if (same(ui.status, key)) return;
-        if (catalog) drawCatalog();
+      refresh(force) {
+        if (tids.length === 1) voiceCheck(ui.check, tids[0], ui.lang);
+        fillLangs();
+        if (models) drawCatalog();
+        const sps = tids.map(speechOf);
+        const known = sps.filter(Boolean);
+        const key = JSON.stringify([ui.lang, known.map((s) => [s.preferred, s.bridge, s.voices, s.engines, s.embedded, s.last]),
+          tids.map((tid) => (g(tablets.get(tid) || {}, "state.tts.engines") || []).filter((e) => OLD_TTS_APPS.includes(e.package)).map((e) => e.package))]);
+        if (!force && same(ui.voices, key)) return;
+        if (force) same(ui.voices, key);
         if (!known.length) {
-          fill(ui.status, h("div", { class: "group" }, row(h("span", { class: "grow muted" }, "Braucht die neue FreeKiosk-Version (qr4) auf dem Tablet."))));
+          fill(ui.prefer);
+          fill(ui.voices, h("div", { class: "notice" }, icon("speak"), h("span", { class: "grow" }, h("b", {}, "Braucht die neue FreeKiosk-Version (qr9)"),
+            h("small", {}, "Mit ihr spricht FreeKiosk selbst, mit eingebauten Stimmen und denen von Samsung und Google."))));
+          fill(ui.more);
           return;
         }
-        const one = known.length === 1 && tids.length === 1 ? known[0] : null;
-        const engines = new Map();
-        known.forEach((t) => (t.engines || []).forEach((e) => {
-          const x = engines.get(e.package) || Object.assign({ count: 0, active: 0 }, e);
-          x.count++;
-          if (t.active === e.package) x.active++;
-          engines.set(e.package, x);
+        // Standard output: what speaks when a page asks for no particular voice
+        const options = new Map([["embedded", "Eingebaut (offline)"]]);
+        known.forEach((s) => (s.engines || []).filter((e) => e.ready).forEach((e) => options.set(e.package, e.label || e.package)));
+        const prefs = new Set(known.map((s) => s.preferred || "embedded"));
+        const pref = prefs.size === 1 ? [...prefs][0] : null;
+        fill(ui.prefer,
+          groupH("Standard-Stimme"),
+          h("div", { class: "group" }, ...[...options].map(([value, label]) => h("button", { type: "button", class: "row nav", onclick: () => prefer(value, label) },
+            h("span", { class: "nav-ic" }, icon(value === "embedded" ? "box" : "speak")),
+            h("span", { class: "grow" }, h("span", { class: "row-title" }, label),
+              h("small", { class: "row-sub" }, value === "embedded" ? "Offline-Stimmen von FreeKiosk, sonst Android" : "Sprachausgabe von Android")),
+            pref === value ? icon("check", "chk") : null))),
+          h("div", { class: "foot" }, "Gilt, wenn in AsTeRICS „Standard“ als Stimme gewählt ist. Jede Stimme lässt sich dort auch direkt wählen."));
+
+        // Voices of the chosen language
+        const voices = new Map();
+        known.forEach((s) => (s.voices || []).filter((v) => baseLang(v.lang) === ui.lang).forEach((v) => {
+          const e = voices.get(v.uri) || Object.assign({ count: 0 }, v);
+          e.count++;
+          voices.set(v.uri, e);
         }));
-        const sysActive = known.every((t) => !(t.engines || []).some((e) => e.hidden));
-        // Languages AsTeRICS sees as offline voices (from the Grid agent's voice list)
-        const local = new Set();
-        tids.forEach((tid) => ((pageOf(tid) || {}).voices || []).forEach((v) => { if (v.local && v.lang) local.add(v.lang.slice(0, 2).toLowerCase()); }));
-        const offlineLangs = local.size ? "Offline: " + [...local].map((l) => { try { return langNames ? langNames.of(l) : l; } catch (e) { return l; } }).sort((a, b) => a.localeCompare(b, "de")).join(", ") : "";
-        const rows = [...engines.values()].filter((e) => !e.system).map((e) => row(
-          h("span", { class: "nav-ic" }, icon("speak")),
-          h("span", { class: "grow" }, h("span", { class: "row-title" }, engineName(e)),
-            h("small", { class: "row-sub" }, [e.version ? "Version " + e.version : "", tids.length > 1 ? `auf ${e.count} von ${tids.length}` : ""].filter(Boolean).join(" · "))),
-          e.active && e.active === known.length ? icon("check", "chk")
-            : h("button", { type: "button", class: "btn sm", onclick: () => use(e.package) }, "Verwenden"),
-          INSTALLABLE_TTS.includes(e.package) ? h("button", { type: "button", class: "btn sm ghost", title: "Entfernen", onclick: () => remove(e.package) }, icon("trash")) : null));
-        const busy = known.find((t) => t.busy);
-        const err = known.map((t) => t.lastError).find(Boolean);
-        const unsigned = known.filter((t) => !t.signed).length;
-        fill(ui.status,
-          groupH("Auf dem Tablet"),
-          h("div", { class: "group" },
-            ...rows,
-            h("button", { type: "button", class: "row nav", onclick: () => use("system") },
-              h("span", { class: "nav-ic" }, icon("tablet")),
-              h("span", { class: "grow" }, h("span", { class: "row-title" }, "System-Stimme"), h("small", { class: "row-sub" }, offlineLangs || "Samsung oder Google")),
-              sysActive ? icon("check", "chk") : null),
-            sysActive ? row(h("span", { class: "nav-ic" }, icon("download")),
-              h("span", { class: "grow" }, h("span", { class: "row-title" }, "Weitere Sprachen dazu"), h("small", { class: "row-sub" }, "Öffnet am Tablet die Download-Seite von Samsung oder Google")),
-              h("button", { type: "button", class: "btn sm light", onclick: () => sendSigned(tids, "tts_voice_data", "", "", { package: "" }, "Wird am Tablet geöffnet") }, "Am Tablet öffnen")) : null),
-          busy ? h("div", { class: "foot" }, h("span", { class: "spin", style: "display:inline-block;vertical-align:-3px;margin-right:6px" }), busy.lastAction || (busy.busyAction === "uninstall" ? "Wird entfernt …" : "Lädt herunter …")) : null,
+        const emb = new Map();
+        known.forEach((s) => ((s.embedded || {}).voices || []).forEach((v) => emb.set(v.id, v)));
+        const vrow = (v) => {
+          const isEmb = v.engine === "embedded";
+          const id = isEmb ? v.uri.replace(/^fk:emb:/, "") : "";
+          const info = isEmb ? emb.get(id) : null;
+          const label = engineLabel(known[0], v.engine);
+          // "Samsung · Deutsch (Deutschland)": the engine goes into the second line
+          const title = isEmb ? v.name.replace(/ · eingebaut$/, "") : v.name.startsWith(label + " · ") ? v.name.slice(label.length + 3) : v.name;
+          return row(
+            h("span", { class: "nav-ic" }, icon(isEmb ? "box" : "speak")),
+            h("span", { class: "grow" }, h("span", { class: "row-title" }, title),
+              h("small", { class: "row-sub" }, [isEmb ? "Eingebaut" : label, isEmb ? v.lang : "", info && info.size ? mb(info.size) : "",
+                tids.length > 1 ? `auf ${v.count} von ${tids.length}` : ""].filter(Boolean).join(" · "))),
+            h("button", { type: "button", class: "btn sm light", onclick: () => probe(v.uri, v.lang, v.name) }, icon("play"), "Probe"),
+            isEmb ? h("button", { type: "button", class: "btn sm ghost", title: "Entfernen", "aria-label": `${v.name} entfernen`, onclick: () => removeVoice(id, v.name) }, icon("trash")) : null);
+        };
+        const list = [...voices.values()].sort((a, b) => ((b.engine === "embedded") - (a.engine === "embedded")) || a.name.localeCompare(b.name, "de"));
+        const ems = known.map((s) => s.embedded || {});
+        const busy = ems.find((e) => e.installing);
+        const err = ems.map((e) => e.lastError).find(Boolean);
+        const last = known.length === 1 && known[0].last && !known[0].last.ok ? known[0].last : null;
+        const unavailable = ems.find((e) => e.available === false);
+        fill(ui.voices,
+          groupH("Stimmen am Tablet", ui.langSel),
+          h("div", { class: "group" }, ...(list.length ? list.map(vrow)
+            : [row(h("span", { class: "grow muted" }, `Keine Stimme für ${langLabel(ui.lang)}. Unten eine eingebaute laden.`))])),
+          busy ? h("div", { class: "foot" }, h("span", { class: "spin", style: "display:inline-block;vertical-align:-3px;margin-right:6px" }),
+            busy.phase === "unpack" ? "Wird entpackt" : "Lädt herunter",
+            busy.total ? ` … ${Math.min(100, Math.round(100 * busy.done / busy.total))} %` : " …", tids.length > 1 ? "" : ` (${busy.installing})`) : null,
           !busy && err ? h("div", { class: "foot err" }, err) : null,
-          !busy && !err && one && one.lastAction ? h("div", { class: "foot" }, one.lastAction) : null,
-          unsigned ? h("div", { class: "foot warn-t" }, `${unsigned === known.length ? "Das Tablet hat" : unsigned + " Tablets haben"} keinen Schlüssel von diesem Kit. Einmal mit einem neuen QR-Code einrichten oder den Schlüssel unter Verbindung angleichen.`) : null,
-          known.some((t) => !t.owner) ? h("div", { class: "foot warn-t" }, "Ohne Geräteverwaltung (Device Owner) kann FreeKiosk nichts installieren.") : null,
-          h("div", { class: "foot" }, "Nach dem Wechseln das Tablet neu starten, damit AsTeRICS die Stimme findet. ",
-            h("button", { type: "button", class: "link", onclick: () => { if (confirm(`${where()} neu starten?`)) sendAll(tids, "reboot", "", "Startet neu"); } }, "Neu starten")));
+          !busy && !err && ems.length === 1 && ems[0].lastAction ? h("div", { class: "foot" }, ems[0].lastAction) : null,
+          last ? h("div", { class: "foot warn-t" }, `Letzte Probe: ${last.voice || "keine Stimme"} – ${last.message}`) : null,
+          unavailable ? h("div", { class: "foot warn-t" }, unavailable.error || "Eingebaute Stimmen gehen auf diesem Tablet nicht.") : null,
+          known.some((s) => s.bridge === false) ? h("div", { class: "notice" }, icon("speak"),
+            h("span", { class: "grow" }, h("b", {}, "Sprachbrücke ist aus"), h("small", {}, "AsTeRICS hört dann nur die Standard-Stimme von Android.")),
+            h("button", { type: "button", class: "btn sm", onclick: () => sendAll(ready(), "speech_bridge", "ON", "Sprachbrücke an") }, "Einschalten")) : null);
+
+        // Samsung/Google languages, and old voice apps that are no longer needed
+        const oldApps = new Map();
+        tids.forEach((tid) => (g(tablets.get(tid) || {}, "state.tts.engines") || []).filter((e) => OLD_TTS_APPS.includes(e.package)).forEach((e) => oldApps.set(e.package, e)));
+        fill(ui.more,
+          groupH("Samsung und Google"),
+          h("div", { class: "group" },
+            row(h("span", { class: "nav-ic" }, icon("download")),
+              h("span", { class: "grow" }, h("span", { class: "row-title" }, "Weitere Sprachen dazu"), h("small", { class: "row-sub" }, "Öffnet am Tablet die Download-Seite von Samsung oder Google")),
+              h("button", { type: "button", class: "btn sm light", onclick: () => sendSigned(tids, "tts_voice_data", "", "", { package: "" }, "Wird am Tablet geöffnet") }, "Am Tablet öffnen")),
+            ...[...oldApps.values()].map((e) => row(h("span", { class: "nav-ic" }, icon("trash")),
+              h("span", { class: "grow" }, h("span", { class: "row-title" }, e.package === SHERPA_PKG ? "sherpa-App" : e.label || e.package),
+                h("small", { class: "row-sub" }, "Einzelne Stimmen-App, nicht mehr nötig")),
+              h("button", { type: "button", class: "btn sm ghost", onclick: () => { if (confirm(`Die App von ${where()} entfernen?`)) sendSigned(tids, "tts_uninstall", e.package, "", { package: e.package }, "Wird entfernt …"); } }, "Entfernen")))),
+          h("div", { class: "foot" }, "Dort geladene Sprachen erscheinen hier und in AsTeRICS von selbst."));
       },
     };
   }
-  // The way from "installed" to "AsTeRICS speaks with it", one step at a time, so it is
-  // visible where it stops. Chrome and the WebView only use Android's default engine;
-  // the WebView picks it once per app start.
-  function voiceCheck(box, tid) {
-    const t = tablets.get(tid) || {};
-    const tts = g(t, "state.tts");
-    if (!tts) { fill(box); return; }
-    const sherpa = (tts.engines || []).find((e) => e.package === SHERPA_PKG);
-    const uses = !!sherpa && tts.active === SHERPA_PKG;
-    const pendingRestart = !!(tts.changedAt && tts.bootAt && tts.changedAt > tts.bootAt);
-    const unknownRestart = tts.bootAt == null; // older app: cannot tell, ask for a restart
+  // From "a voice on the tablet" to "AsTeRICS speaks with it", one step at a time
+  function voiceCheck(box, tid, lang) {
+    const sp = speechOf(tid);
+    if (!sp) { fill(box); return; }
     const page = pageOf(tid);
-    const seen = page && page.voices ? page.voices.length : null;
+    const mine = (sp.voices || []).filter((v) => baseLang(v.lang) === lang);
     const said = page && page.result && page.result.action === "speak" ? page.result : null;
-    const key = JSON.stringify([!!sherpa, sherpa && sherpa.source, uses, pendingRestart, unknownRestart, tts.secureSettings, seen, said && said.msg, said && said.ok]);
+    const seen = page && page.voices ? page.voices.filter((v) => /^fk:/.test(v.uri || "")).length : null;
+    const last = sp.last;
+    const key = JSON.stringify([lang, mine.map((v) => v.uri), last, said && [said.msg, said.ok], seen]);
     if (same(box, key)) return;
     const step = (state, n, title, detail, action) => row(
       h("span", { class: "ck " + state }, state === "ok" ? icon("check") : String(n)),
       h("span", { class: "grow" }, h("span", { class: "row-title" }, title), detail ? h("small", { class: "row-sub" }, detail) : null),
       action || null);
     const btn = (label, fn) => h("button", { type: "button", class: "btn sm light", onclick: fn }, label);
+    const fresh = last && Date.now() - last.at < 120000;
     fill(box,
       groupH("Stimmen-Check"),
       h("div", { class: "group" },
-        step(sherpa ? "ok" : "todo", 1, "Offline-Stimme auf dem Tablet", sherpa ? engineName(sherpa) : "Unten eine Stimme laden"),
-        step(uses ? "ok" : sherpa ? "warn" : "todo", 2, "Android spricht damit",
-          uses ? (tts.secureSettings ? "als Standard gesetzt" : "Samsung und Google sind versteckt") : sherpa ? "Unten bei der Stimme „Verwenden“ tippen" : ""),
-        step(!uses ? "todo" : pendingRestart ? "warn" : unknownRestart ? "info" : "ok", 3, "Tablet neu gestartet",
-          !uses ? "" : pendingRestart ? "Seit dem Wechsel noch nicht. AsTeRICS hört erst danach die neue Stimme."
-            : unknownRestart ? "Nach dem Wechsel einmal neu starten, erst dann hört AsTeRICS die neue Stimme." : "AsTeRICS nutzt die neue Stimme",
-          uses && (pendingRestart || unknownRestart) ? btn("Neu starten", () => { if (confirm(`${displayName(tid)} neu starten?`)) sendAll([tid], "reboot", "", "Startet neu"); }) : null),
-        step(uses ? "info" : "todo", 4, "Probe über FreeKiosk", "Spricht über Android, zu hören am Tablet",
-          btn("Abspielen", () => send(tid, "tts", "Hallo, ich bin die Stimme von FreeKiosk."))),
-        step(said ? (said.ok ? "ok" : "warn") : "todo", 5, "Probe in AsTeRICS",
-          said ? said.msg : seen != null ? `AsTeRICS sieht ${seen} ${seen === 1 ? "Stimme" : "Stimmen"}` : "AsTeRICS Grid muss offen sein",
-          btn("Abspielen", () => agent([tid], "speak", { text: "Hallo, ich bin die Stimme in AsTeRICS.", plain: true }, { sending: "Spricht …", label: "Gesprochen", reprobe: 0 }))),
+        step(mine.length ? "ok" : "todo", 1, `Stimme für ${langLabel(lang)}`,
+          mine.length ? mine.slice(0, 3).map((v) => v.name).join(", ") + (mine.length > 3 ? ` und ${mine.length - 3} weitere` : "") : "Unten eine eingebaute Stimme laden"),
+        step(fresh ? (last.ok ? "ok" : "warn") : "todo", 2, "Probe über FreeKiosk",
+          fresh ? (last.ok ? `Gesprochen mit ${last.voice}` : `${last.voice || "Keine Stimme"}: ${last.message}`) : "Spricht mit der Standard-Stimme, zu hören am Tablet",
+          btn("Abspielen", () => sendAll([tid], "tts", JSON.stringify({ text: SAMPLES[lang] || SAMPLES.de, lang }), "Spricht"))),
+        step(said ? (said.ok ? "ok" : "warn") : "todo", 3, "Probe in AsTeRICS",
+          said ? said.msg : seen != null ? `AsTeRICS sieht ${seen} ${seen === 1 ? "Stimme" : "Stimmen"} von FreeKiosk` : "AsTeRICS Grid muss offen sein",
+          btn("Abspielen", () => agent([tid], "speak", { text: SAMPLES[lang] || SAMPLES.de, plain: true }, { sending: "Spricht …", label: "Gesprochen", reprobe: 0 }))),
         h("button", { type: "button", class: "row nav", onclick: () => push(voicePage([tid])) },
-          h("span", { class: "ck info" }, "6"),
+          h("span", { class: "ck info" }, "4"),
           h("span", { class: "grow" }, h("span", { class: "row-title" }, "In AsTeRICS als Stimme wählen"), h("small", { class: "row-sub" }, "Grid › Stimme")))),
-      h("div", { class: "foot" }, "Browser am Tablet (auch AsTeRICS in FreeKiosk) hören nur die Stimmen der Sprachausgabe, die Android gerade nutzt. Darum Schritt 2 und 3."));
+      h("div", { class: "foot" }, "FreeKiosk spricht selbst. AsTeRICS sieht alle Stimmen nebeneinander, ohne Umstellen in Android und ohne Neustart."));
   }
-  const INSTALLABLE_TTS = [SHERPA_PKG, "com.CodeBySonu.VoxSherpa", "com.github.olga_yakovleva.rhvoice.android"];
 
   // ---------------------------------------------------------------- page: Wi-Fi networks
   // Spare networks: Android joins another saved network by itself when one is gone.
