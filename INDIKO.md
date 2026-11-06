@@ -15,7 +15,7 @@ Dieses Repo ist ein Fork von [FreeKiosk](https://github.com/RushB-fr/freekiosk) 
 
 - **Tablet-App (APK)** ist FreeKiosk mit unseren Ergänzungen, also alles außer `tools/`. Neu geschriebene Teile liegen in eigenen Ordnern, in Original-Dateien gibt es nur Einstiegspunkte.
 - **Master** ist das inDiKo Kit in `tools/provisioning-kit`. Es ist kein Python und kein Server, sondern eine Webseite aus HTML und JavaScript, die direkt per WebSocket mit dem MQTT-Server spricht. `Start.bat` öffnet sie nur im Browser.
-- **Build** ist `.github/workflows/build-provisioning-apk.yml`. Er baut die APK, packt das Kit als ZIP und schreibt Link und Prüfsumme der APK in `web/config.js` des Kits.
+- **Build** ist `.github/workflows/build-provisioning-apk.yml`. Er baut die APK, packt das Kit als ZIP und schreibt Link und Prüfsumme der APK in `web/config.js` des Kits. Die Prüfsumme rechnet `.github/scripts/apk-signature-checksum.py` aus.
 
 ## Wo was liegt
 

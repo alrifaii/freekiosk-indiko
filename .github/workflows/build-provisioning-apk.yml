@@ -80,10 +80,8 @@ jobs:
           sha256sum "$APK_NAME"
 
           # Signature checksum for the QR code: SHA-256 of the signing certificate, base64url
-          APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
-          DIGEST="$("$APKSIGNER" verify --print-certs "$APK_NAME" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
-          SIG="$(python3 -c 'import base64,sys; print(base64.urlsafe_b64encode(bytes.fromhex(sys.argv[1])).decode().rstrip("="))' "$DIGEST")"
-          if [ "${#SIG}" != 43 ]; then echo "::error::No signature checksum (digest: '$DIGEST')"; exit 1; fi
+          SIG="$(python3 .github/scripts/apk-signature-checksum.py "$APK_NAME")"
+          if [ "${#SIG}" != 43 ]; then echo "::error::No signature checksum ('$SIG')"; exit 1; fi
           echo "Signature checksum: $SIG"
 
           APK_URL=""
