@@ -164,12 +164,12 @@ class MainActivity : ReactActivity() {
       "mqtt_status_interval" to "@kiosk_mqtt_status_interval",
       "mqtt_allow_control" to "@kiosk_mqtt_allow_control",
       "mqtt_device_name" to "@kiosk_mqtt_device_name",
-      // Screenshots on request over MQTT (screenshot_capture), so the kit can show the screen
+      // inDiKo: screenshots on request over MQTT (screenshot_capture), so the kit can show the screen
       "mqtt_screenshot_enabled" to "@kiosk_mqtt_screenshot_enabled",
       "mqtt_screenshot_max_width" to "@kiosk_mqtt_screenshot_max_width",
       "dashboard_mode" to "@kiosk_dashboard_mode_enabled",
       "kiosk_enabled" to "@kiosk_enabled",
-      // Lock-screen controls on the PIN screen. A Bluetooth switch that acts as a keyboard
+      // inDiKo: lock-screen controls on the PIN screen. A Bluetooth switch that acts as a keyboard
       // hides the on-screen keyboard and locks the user out of the PIN prompt; the
       // Bluetooth control there is the way back, so it has to be settable at provisioning.
       "lockscreen_controls_enabled" to "@kiosk_lockscreen_controls_enabled",
@@ -186,7 +186,7 @@ class MainActivity : ReactActivity() {
     val ADB_SPECIAL_KEYS = setOf(
       "pin", "url", "lock_package", "config", "managed_apps", "dashboard_tiles",
       "mqtt_password", "auto_start", "auto_launch", "test_mode", "back_button_mode",
-      "pin_mode", "external_app_mode", "status_bar", "mqtt_admin_key", "wifi_more",
+      "pin_mode", "external_app_mode", "status_bar", "mqtt_admin_key", "wifi_more", // inDiKo: last two
       // Cloud enrollment over ADB. The dashboard's "Headless install (ADB)" snippet
       // has advertised --es cloud_token since the cloud shipped, but nothing read it.
       "cloud_token", "cloud_url"
@@ -197,7 +197,7 @@ class MainActivity : ReactActivity() {
 
     /** Never log these values: they are credentials, not settings. */
     val ADB_SENSITIVE_KEYS = setOf(
-      "pin", "rest_api_key", "mqtt_password", "mqtt_username", "cloud_token", "mqtt_admin_key", "wifi_more"
+      "pin", "rest_api_key", "mqtt_password", "mqtt_username", "cloud_token", "mqtt_admin_key", "wifi_more" // inDiKo: last two
     )
 
     /** Extras Android or FreeKiosk itself puts on the intent; never a config mistake. */
@@ -293,10 +293,10 @@ class MainActivity : ReactActivity() {
     // Register volume change receiver to track volume changes
     registerVolumeChangeReceiver()
 
-    // Keep the on-screen keyboard available with a hardware keyboard paired
+    // inDiKo: keep the on-screen keyboard available with a hardware keyboard paired
     ensureImeWithHardKeyboard()
 
-    // Settings that arrived with a setup-wizard QR are replayed once through the
+    // inDiKo: settings that arrived with a setup-wizard QR are replayed once through the
     // ADB config path below - if applied, app will restart
     if (applyProvisioningConfig()) {
       return
@@ -1618,37 +1618,12 @@ class MainActivity : ReactActivity() {
   // ==================== ADB Configuration ====================
   
   /**
-   * Handle ADB intent configuration
-   * Allows setting up FreeKiosk via ADB commands:
-   * 
-   * First setup (no PIN configured):
-   *   adb shell am start -n com.freekiosk/.MainActivity --es lock_package "com.app" --es pin "1234"
-   * 
-   * Modify existing config (PIN required):
-   *   adb shell am start -n com.freekiosk/.MainActivity --es lock_package "com.app" --es pin "1234"
-   * 
-   * Full config with URL:
-   *   adb shell am start -n com.freekiosk/.MainActivity --es url "https://example.com" --es pin "1234"
-   * 
-   * @return true if config was applied and app will restart, false otherwise
-   */
-  /**
-   * Replay the kiosk settings a provisioning QR carried (stored by
-   * DeviceAdminReceiver.persistProvisioningConfig) through handleAdbConfig, as if
-   * they had been passed with `adb shell am start ... --es key value`. Going
-   * through the same path keeps one set of rules: the PIN is required on a virgin
-   * device, unknown keys are reported, and the app restarts with the new settings.
-   *
-   * The store is cleared before the replay, so a config that is rejected (no PIN,
-   * bad JSON) shows its toast once and is not retried on every launch.
-   */
-  /**
-   * Android hides the soft keyboard while any hardware keyboard is connected.
-   * Bluetooth switch and scanning interfaces register as one, so web forms
-   * inside the kiosk lost their keyboard the moment such a device was paired.
-   * show_ime_with_hard_keyboard keeps it; it is a secure setting, so this only
-   * works where WRITE_SECURE_SETTINGS was granted over ADB, and is a silent
-   * no-op on QR-provisioned tablets (the PIN screen has its own keypad there).
+   * inDiKo: Android hides the soft keyboard while any hardware keyboard is connected.
+   * Bluetooth switch and scanning interfaces register as one, so web forms inside the
+   * kiosk lost their keyboard the moment such a device was paired.
+   * show_ime_with_hard_keyboard keeps it. It is a secure setting, so this only works
+   * once WRITE_SECURE_SETTINGS was granted over ADB (wireless debugging, see LIESMICH)
+   * and is a silent no-op otherwise (the PIN screen has its own keypad).
    */
   private fun ensureImeWithHardKeyboard() {
     if (checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) != PackageManager.PERMISSION_GRANTED) return
@@ -1663,6 +1638,16 @@ class MainActivity : ReactActivity() {
     }
   }
 
+  /**
+   * inDiKo: replay the kiosk settings a provisioning QR carried (stored by
+   * DeviceAdminReceiver.persistProvisioningConfig) through handleAdbConfig, as if
+   * they had been passed with `adb shell am start ... --es key value`. Going
+   * through the same path keeps one set of rules: the PIN is required on a virgin
+   * device, unknown keys are reported, and the app restarts with the new settings.
+   *
+   * The store is cleared before the replay, so a config that is rejected (no PIN,
+   * bad JSON) shows its toast once and is not retried on every launch.
+   */
   private fun applyProvisioningConfig(): Boolean {
     val prefs = getSharedPreferences(DeviceAdminReceiver.PROVISIONING_CONFIG_PREFS, Context.MODE_PRIVATE)
     val entries = prefs.all
@@ -1677,6 +1662,21 @@ class MainActivity : ReactActivity() {
     return handleAdbConfig(replay)
   }
 
+  /**
+   * Handle ADB intent configuration
+   * Allows setting up FreeKiosk via ADB commands:
+   * 
+   * First setup (no PIN configured):
+   *   adb shell am start -n com.freekiosk/.MainActivity --es lock_package "com.app" --es pin "1234"
+   * 
+   * Modify existing config (PIN required):
+   *   adb shell am start -n com.freekiosk/.MainActivity --es lock_package "com.app" --es pin "1234"
+   * 
+   * Full config with URL:
+   *   adb shell am start -n com.freekiosk/.MainActivity --es url "https://example.com" --es pin "1234"
+   * 
+   * @return true if config was applied and app will restart, false otherwise
+   */
   private fun handleAdbConfig(intent: Intent?): Boolean {
     if (intent == null) return false
     
@@ -1837,14 +1837,14 @@ class MainActivity : ReactActivity() {
     }
 
     intent.getStringExtra("mqtt_admin_key")?.let {
-      // Signs commands that change the tablet over MQTT (voices, Wi-Fi); kept natively,
-      // the JS side never needs it
-      com.freekiosk.mqtt.AdminSignature.storeKey(this, it)
+      // inDiKo: signs commands that change the tablet over MQTT (voices, Wi-Fi); kept
+      // natively, the JS side never needs it
+      com.freekiosk.indiko.AdminSignature.storeKey(this, it)
     }
 
     intent.getStringExtra("wifi_more")?.let {
-      // Spare Wi-Fi networks; Android switches to another saved one when one is gone
-      val saved = com.freekiosk.mqtt.WifiNetworksBridge.addFromConfig(this, it)
+      // inDiKo: spare Wi-Fi networks; Android switches to another saved one when one is gone
+      val saved = com.freekiosk.indiko.WifiNetworksBridge.addFromConfig(this, it)
       android.util.Log.i("FreeKiosk-ADB", "Saved $saved spare Wi-Fi network(s)")
     }
 

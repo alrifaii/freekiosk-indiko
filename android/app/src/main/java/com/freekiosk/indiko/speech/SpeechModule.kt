@@ -1,4 +1,4 @@
-package com.freekiosk.speech
+package com.freekiosk.indiko.speech
 
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule
@@ -13,7 +13,7 @@ import org.json.JSONObject
 /**
  * NativeModules.FreeKioskSpeech: the WebView's speechSynthesis bridge talks to [SpeechHub]
  * through this. Events go out as "FreeKioskSpeechEvent" with a JSON string
- * {type: start|end|error|voices|bridge, id, error?}.
+ * {type: start|end|error|voices, id, error?}.
  */
 class SpeechModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
     private val listener: (JSONObject) -> Unit = { ev -> send(ev) }
@@ -47,11 +47,6 @@ class SpeechModule(private val reactContext: ReactApplicationContext) : ReactCon
     @ReactMethod
     fun cancel() {
         SpeechHub.stop()
-    }
-
-    @ReactMethod
-    fun isBridgeEnabled(promise: Promise) {
-        promise.resolve(SpeechHub.bridgeEnabled())
     }
 
     // Required by NativeEventEmitter

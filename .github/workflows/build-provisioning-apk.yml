@@ -1,12 +1,12 @@
 name: Build provisioning APK and inDiKo Kit
 
-# Builds the -Pcloudprovi variant (no accessibility service, so Play Protect lets the
-# setup wizard install it) and packs it with tools/provisioning-kit into a ZIP that IT
-# staff unpack and start with Start.bat.
+# inDiKo: builds FreeKiosk (the -Pcloudprovi variant: no accessibility service, so Play
+# Protect lets the setup wizard install it) and packs the inDiKo Kit (tools/provisioning-kit)
+# into a ZIP. The kit holds no APK: its QR code points the tablets to the APK of this
+# release, and config.js carries the link and the APK's signature checksum.
 #
 # Run it by hand from the Actions tab (result under "Artifacts"), or push a tag such as
-# v2.0.0-beta.6-qr1 to also publish APK and ZIP as a release. The release link of the APK
-# is a stable download URL for the QR code.
+# v2.1.0-beta.1-qr11 to publish APK and ZIP as a release.
 #
 # Signing: set the repository secrets KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS and
 # KEY_PASSWORD. Without them the APK is signed with the public debug key from the repo,
@@ -22,66 +22,6 @@ permissions:
   contents: write
 
 jobs:
-  test-kit-windows:
-    # The kit's server runs on school laptops with Windows PowerShell 5.1 and no
-    # installs, so it is tested there and not only on Linux.
-    runs-on: windows-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        shell: powershell
-        working-directory: tools/provisioning-kit
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Start server.ps1 and check every route
-        # Start and checks share one step, so a failure can only mean the server.
-        run: |
-          $ErrorActionPreference = 'Stop'
-          [System.IO.File]::WriteAllBytes("$PWD\dummy.apk", [byte[]](1..200))
-          $proc = Start-Process powershell -PassThru -WorkingDirectory $PWD `
-            -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',"$PWD\server.ps1",'-NoBrowser','-Port','18080' `
-            -RedirectStandardOutput "$PWD\server.log" -RedirectStandardError "$PWD\server.err"
-
-          $up = $false
-          for ($i = 0; $i -lt 40 -and -not $up; $i++) {
-            Start-Sleep -Milliseconds 500
-            if ($proc.HasExited) { break }
-            try { $c = New-Object System.Net.Sockets.TcpClient; $c.Connect('127.0.0.1', 18080); $c.Close(); $up = $true } catch { }
-          }
-          Get-Content "$PWD\server.log", "$PWD\server.err" -ErrorAction SilentlyContinue
-          if (-not $up) { throw "Server not reachable on 127.0.0.1:18080 (process exited: $($proc.HasExited))" }
-
-          function Test-Kit([string]$base) {
-            $info = Invoke-RestMethod "$base/api/info"
-            if ($info.apkName -ne 'dummy.apk' -or $info.apkSize -ne 200) { throw "$base api/info wrong: $($info | ConvertTo-Json)" }
-            $apk = Invoke-WebRequest "$base/freekiosk.apk" -UseBasicParsing
-            if ($apk.RawContentLength -ne 200) { throw "$base APK length $($apk.RawContentLength)" }
-            $page = Invoke-WebRequest "$base/" -UseBasicParsing
-            if ($page.Content -notmatch 'inDiKo Kit') { throw "$base index.html not served" }
-            foreach ($f in 'qrcode.js', 'provisioning.js', 'mqtt.js', 'app.js', 'tablets.js', 'grids.js', 'kalender/index.html') {
-              $r = Invoke-WebRequest "$base/$f" -UseBasicParsing
-              if ($r.StatusCode -ne 200) { throw "$base $f not served" }
-            }
-            $missing = $null
-            try { Invoke-WebRequest "$base/nope.txt" -UseBasicParsing | Out-Null } catch { $missing = $_.Exception.Response.StatusCode.value__ }
-            if ($missing -ne 404) { throw "$base missing file gave $missing instead of 404" }
-            Write-Host "OK  $base"
-            return $info
-          }
-
-          $info = Test-Kit 'http://127.0.0.1:18080'
-          Test-Kit 'http://localhost:18080' | Out-Null
-          # The address a tablet would use
-          $lan = @($info.ips | Where-Object { $_.address })[0].address
-          if ($lan) { Test-Kit "http://${lan}:18080" | Out-Null }
-          Write-Host ($info | ConvertTo-Json -Depth 4)
-          Stop-Process -Id $proc.Id -Force
-
-      - name: Server log
-        if: always()
-        run: Get-Content server.log, server.err -ErrorAction SilentlyContinue
-
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -125,9 +65,13 @@ jobs:
 
       - name: Build APK
         working-directory: android
-        run: ./gradlew assembleRelease -Pcloudprovi --no-daemon
+        # The tag goes into the app (status device.build), so the kit shows which build runs
+        run: |
+          BUILD="$GITHUB_REF_NAME"
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then BUILD="${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}"; fi
+          ./gradlew assembleRelease -Pcloudprovi -PkitBuild="$BUILD" --no-daemon
 
-      - name: Pack APK and QR kit
+      - name: Pack APK and kit
         run: |
           REF="${GITHUB_REF_NAME//\//-}"
           APK_NAME="FreeKiosk-${REF}-provisioning.apk"
@@ -135,14 +79,28 @@ jobs:
           cp android/app/build/outputs/apk/release/app-release.apk "$APK_NAME"
           sha256sum "$APK_NAME"
 
-          RELEASE_URL=""
+          # Signature checksum for the QR code: SHA-256 of the signing certificate, base64url
+          APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
+          DIGEST="$("$APKSIGNER" verify --print-certs "$APK_NAME" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
+          SIG="$(python3 -c 'import base64,sys; print(base64.urlsafe_b64encode(bytes.fromhex(sys.argv[1])).decode().rstrip("="))' "$DIGEST")"
+          if [ "${#SIG}" != 43 ]; then echo "::error::No signature checksum (digest: '$DIGEST')"; exit 1; fi
+          echo "Signature checksum: $SIG"
+
+          APK_URL=""
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            RELEASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${APK_NAME}"
+            APK_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${APK_NAME}"
           fi
 
           cp -r tools/provisioning-kit "$KIT_DIR"
-          cp "$APK_NAME" "$KIT_DIR/"
-          printf '{"version":"%s","releaseUrl":"%s"}\n' "$GITHUB_REF_NAME" "$RELEASE_URL" > "$KIT_DIR/config.json"
+          cat > "$KIT_DIR/web/config.js" <<EOF
+          // Written by the build for ${GITHUB_REF_NAME}
+          window.KIT_CONFIG = {
+            version: "${GITHUB_REF_NAME}",
+            apkUrl: "${APK_URL}",
+            signatureChecksum: "${SIG}",
+          };
+          EOF
+          cat "$KIT_DIR/web/config.js"
           zip -r -q "${KIT_DIR}.zip" "$KIT_DIR"
 
           echo "APK_NAME=$APK_NAME" >> "$GITHUB_ENV"
@@ -164,6 +122,7 @@ jobs:
             ${{ env.APK_NAME }}
           prerelease: true
           body: |
-            **inDiKo Kit** (ZIP): entpacken, `Start.bat` doppelklicken. Einrichten per QR-Code,
-            Tablets live per MQTT steuern.
+            **inDiKo Kit** (ZIP): entpacken, `Start.bat` doppelklicken (oder `web/index.html` öffnen).
+            Einrichten per QR-Code, Tablets live per MQTT steuern. Die Tablets laden die APK
+            beim Einrichten selbst von hier.
             Die APK ist die Provisioning-Variante (-Pcloudprovi) mit Einstellungen aus dem QR-Code.

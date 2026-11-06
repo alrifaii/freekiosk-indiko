@@ -93,7 +93,7 @@
 -dontwarn org.osgi.annotation.bundle.Export
 
 # -----------------------------------------------------------------------
-# Built-in offline voices (sherpa-onnx). The JNI library reads the config classes and
+# inDiKo: built-in offline voices (sherpa-onnx). The JNI library reads the config classes and
 # their fields by name (GetFieldID), so R8 must neither rename nor drop them.
 # -----------------------------------------------------------------------
 -keep class com.k2fsa.sherpa.onnx.** { *; }

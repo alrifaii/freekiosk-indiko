@@ -148,6 +148,7 @@ A JSON object published periodically (default: every 30 seconds) containing all 
   "device": {
     "ip": "192.168.1.50",
     "version": "1.2.12",
+    "build": "v2.1.0-beta.1-qr10",
     "kioskMode": true,
     "isDeviceOwner": true,
     "motionAlwaysOn": false
@@ -181,6 +182,10 @@ A JSON object published periodically (default: every 30 seconds) containing all 
 
 > 💡 The `images` block is only present when MQTT image publishing is available (see
 > [Images (Screenshot & Camera)](#-images-screenshot--camera)).
+
+> inDiKo: `device.build` is the CI build the APK came from (the tag, such as
+> `v2.1.0-beta.1-qr10`, set with `-PkitBuild`), empty for local builds. `device.version`
+> is the same for every build of one release.
 
 
 
@@ -394,7 +399,7 @@ Commands are sent by publishing to `{baseTopic}/{topicId}/set/{entity}`.
 | **lock** | lockDevice | any | Lock device screen |
 | **url** | setUrl | URL string | Navigate to URL |
 | **mode** | setMode | JSON: `{"mode":"webview","url":"https://..."}`, `{"mode":"external_app","package":"com.app"}` (omit `package` for the stored multi-app config), or `{"mode":"media_player"}` | Switch display mode at runtime (webview / external_app / media_player) |
-| **tts** | tts | text string, or JSON `{"text","voice","lang"}` | Text-to-speech (handled natively; `voice` is a `voiceURI` from `speech.voices`) |
+| **tts** | tts | text string, or JSON `{"text","voice","lang"}` | Text-to-speech (handled natively; inDiKo: `voice` is a `voiceURI` from `speech.voices`) |
 | **toast** | toast | text string | Show toast notification (handled natively) |
 | **launch_app** | launchApp | package name | Launch external app |
 | **execute_js** | executeJs | JS code string | Execute JavaScript in WebView |
@@ -423,44 +428,36 @@ Commands are sent by publishing to `{baseTopic}/{topicId}/set/{entity}`.
 | **camera_auto** | setImageAutoPublish (camera) | `ON` / `OFF` | Toggle periodic camera publishing |
 | **screenshot_interval** | setImageInterval (screenshot) | `5-3600` (seconds) | Screenshot auto-publish interval |
 | **camera_interval** | setImageInterval (camera) | `5-3600` (seconds) | Camera auto-publish interval |
-| **bt_power** | btPower | `ON` / `OFF` | Bluetooth on or off |
-| **bt_scan** / **bt_scan_stop** | btScan / btScanStop | seconds / any | Look for nearby devices (state `bluetooth.found`) |
-| **bt_pair** / **bt_unpair** | btPair / btUnpair | MAC address | Pair or remove a device |
-| **tts_install** | ttsInstall | signed JSON `{"package","url","ts","sig"}` | Download a speech engine APK and install it silently (Device Owner) |
-| **tts_uninstall** | ttsUninstall | signed JSON `{"package","ts","sig"}` | Remove a speech engine installed that way |
-| **tts_engine** | ttsEngine | signed JSON `{"package","ts","sig"}`, package `system` for the tablet's own | Choose the speech engine every app uses |
-| **wifi_add** | wifiAdd | signed JSON `{"ssid","enc","type","hidden","ts","sig"}` | Save a spare Wi-Fi network for the whole device (Device Owner) |
-| **wifi_remove** | wifiRemove | signed JSON `{"ssid","ts","sig"}` | Remove a saved network (never the one in use) |
-| **tts_voice_data** | ttsVoiceData | signed JSON `{"package","ts","sig"}`, empty package = active engine | Open the engine's own voice download screen on the tablet (someone taps there) |
-| **battery_exempt** | requestBatteryExemption | any | Show Android's battery optimization dialog on the tablet (state: `device.batteryExempt`) |
-| **voice_install** | voiceInstall | signed JSON `{"id","url","name","lang","ts","sig"}` | Download a sherpa-onnx VITS model (`.tar.bz2`, https) and unpack it as a built-in voice |
-| **voice_remove** | voiceRemove | signed JSON `{"id","ts","sig"}` | Remove a built-in voice |
-| **voice_prefer** | voicePrefer | `embedded` or an engine package (`com.samsung.SMT`, ...) | Output used when a page or command asks for no particular voice |
-| **speech_stop** | speechStop | any | Stop speaking |
-| **speech_bridge** | speechBridge | `ON` / `OFF` | FreeKiosk's own `speechSynthesis` in the WebView (default on); `OFF` leaves it to Chrome |
+| **bt_power** | btPower | `ON` / `OFF` | Bluetooth on or off (inDiKo) |
+| **bt_scan** / **bt_scan_stop** | btScan / btScanStop | seconds / any | Look for nearby devices (state `bluetooth.found`) (inDiKo) |
+| **bt_pair** / **bt_unpair** | btPair / btUnpair | MAC address | Pair or remove a device (inDiKo) |
+| **wifi_add** | wifiAdd | signed JSON `{"ssid","enc","type","hidden","ts","sig"}` | Save a spare Wi-Fi network for the whole device (Device Owner) (inDiKo) |
+| **wifi_remove** | wifiRemove | signed JSON `{"ssid","ts","sig"}` | Remove a saved network (never the one in use) (inDiKo) |
+| **battery_exempt** | requestBatteryExemption | any | Show Android's battery optimization dialog on the tablet (state: `device.batteryExempt`) (inDiKo) |
+| **voice_install** | voiceInstall | signed JSON `{"id","url","name","lang","ts","sig"}` | Download a sherpa-onnx VITS model (`.tar.bz2`, https) and unpack it as a built-in voice (inDiKo) |
+| **voice_remove** | voiceRemove | signed JSON `{"id","ts","sig"}` | Remove a built-in voice (inDiKo) |
+| **voice_prefer** | voicePrefer | `embedded` or an engine package (`com.samsung.SMT`, ...) | Output used when a page or command asks for no particular voice (inDiKo) |
+| **voice_data** | voiceData | signed JSON `{"engine","ts","sig"}`, empty engine = Android's default | Open Samsung's or Google's voice download screen on the tablet (someone taps there) (inDiKo) |
+| **speech_stop** | speechStop | any | Stop speaking (inDiKo) |
 
 
 
-### Signed commands
+### Signed commands (inDiKo)
 
 Commands that change the device itself may come over a public broker, so they need the
 admin key set at provisioning (`mqtt_admin_key`, 32+ hex characters, in the QR's admin
 extras or as an ADB extra). The key never travels over MQTT.
 
 - `sig` = hex HMAC-SHA256 with the admin key over `cmd|a|b|ts`, where `ts` is the time
-  in milliseconds. `a`/`b` are `package`/`url` for `tts_install`, `package`/empty for
-  `tts_uninstall` and `tts_engine`, `ssid`/`enc|type|hidden(0 or 1)` for `wifi_add`,
-  `ssid`/empty for `wifi_remove`, `package`/empty for `tts_voice_data`, `id`/`url` for
-  `voice_install`, `id`/empty for `voice_remove`.
+  in milliseconds. `a`/`b` are `ssid`/`enc|type|hidden(0 or 1)` for `wifi_add`,
+  `ssid`/empty for `wifi_remove`, `id`/`url` for `voice_install`, `id`/empty for
+  `voice_remove`, `engine`/empty for `voice_data`.
 - A command older than 15 minutes, or not newer than the last accepted one, is refused.
 - `enc` (the Wi-Fi password) is base64(12-byte IV + AES-256-GCM ciphertext + tag) with
   the key SHA-256(`"wifi|" + adminKey`). Empty for an open network.
-- Results show in the state under `tts` and `wifiNetworks` (`lastAction`, `lastError`).
-- `tts_install` accepts known engine packages from https URLs on known hosts only.
-- `tts_engine` sets Android's preferred engine when `WRITE_SECURE_SETTINGS` was granted
-  over ADB; otherwise it hides the system engines (Device Owner) so the chosen one is used.
+- Results show in the state under `speech.embedded` and `wifiNetworks` (`lastAction`, `lastError`).
 
-### Speech
+### Speech (inDiKo)
 
 FreeKiosk speaks itself (`SpeechHub`): web pages through its own `window.speechSynthesis`
 in the WebView, the `tts` command and the REST API all use the same voices, side by side:
@@ -474,7 +471,7 @@ Chrome's own `speechSynthesis` on Android only knows the default engine, binds i
 app start and leaves out engines that report languages without a country, which is why
 pages saw no offline voice. Nothing needs to be switched in Android and no restart is needed.
 
-State `speech`: `bridge`, `preferred`, `androidDefault`, `engines` (`package`, `label`,
+State `speech`: `preferred`, `androidDefault`, `engines` (`package`, `label`,
 `ready`, `voices`, `langs`), `voices` (`uri`, `name`, `lang`, `engine`), `embedded`
 (`available`, `error`, `voices`, `installing`, `phase` download/unpack, `done`, `total`,
 `lastAction`, `lastError`, `freeBytes`) and `last` (`voice`, `ok`, `message`, `at`) for the
@@ -485,7 +482,7 @@ Spare networks can also come with provisioning: `wifi_more` =
 `"h": true` for a hidden network).
 
 > [!NOTE]
-> Bluetooth, speech engine, voice and Wi-Fi commands are MQTT only. The other commands have full parity with the [REST API](rest-api.md). Both interfaces dispatch through the same native command handler. Remote control and keyboard commands are handled natively via the AccessibilityService (cross-app) or Activity key dispatch (in-app). TTS and Toast are also handled natively (no JS round-trip).
+> Bluetooth, voice and Wi-Fi commands are MQTT only. The other commands have full parity with the [REST API](rest-api.md). Both interfaces dispatch through the same native command handler. Remote control and keyboard commands are handled natively via the AccessibilityService (cross-app) or Activity key dispatch (in-app). TTS and Toast are also handled natively (no JS round-trip).
 
 
 ## Motion Detection

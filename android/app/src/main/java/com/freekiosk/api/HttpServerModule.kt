@@ -533,6 +533,7 @@ class HttpServerModule(private val reactContext: ReactApplicationContext) :
             put("ip", getLocalIpAddress())
             put("hostname", "freekiosk")
             put("version", com.freekiosk.BuildConfig.VERSION_NAME)
+            put("build", com.freekiosk.BuildConfig.KIT_BUILD) // inDiKo: CI tag
             // Check real Device Owner status via DevicePolicyManager
             val dpm = reactContext.getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
             put("isDeviceOwner", dpm.isDeviceOwnerApp(reactContext.packageName))
@@ -1425,7 +1426,7 @@ class HttpServerModule(private val reactContext: ReactApplicationContext) :
     @ReactMethod
     fun stopSpeaking(promise: Promise) {
         try {
-            try { com.freekiosk.speech.SpeechHub.stop() } catch (_: Throwable) {}
+            try { com.freekiosk.indiko.speech.SpeechHub.stop() } catch (_: Throwable) {} // inDiKo
             tts?.stop()
             promise.resolve(true)
         } catch (e: Exception) {
@@ -1689,10 +1690,10 @@ class HttpServerModule(private val reactContext: ReactApplicationContext) :
     }
 
     private fun speakText(text: String, language: String? = null, voiceName: String? = null) {
-        // One speech output for REST, MQTT and web pages, with built-in and Android voices
+        // inDiKo: one speech output for REST, MQTT and web pages, with built-in and Android voices
         try {
-            com.freekiosk.speech.SpeechHub.init(reactContext.applicationContext)
-            com.freekiosk.speech.SpeechHub.speak(
+            com.freekiosk.indiko.speech.SpeechHub.init(reactContext.applicationContext)
+            com.freekiosk.indiko.speech.SpeechHub.speak(
                 "rest-${System.currentTimeMillis()}", text, voiceName ?: "",
                 language ?: detectLocaleForText(text).toLanguageTag(), 1f, 1f, 1f)
             return

@@ -190,9 +190,6 @@ h1 { font-size: 34px; line-height: 1.1; font-weight: 700; letter-spacing: -.02em
 .full .close { position: absolute; top: 16px; right: 16px; }
 
 /* Drop zone */
-.drop { display: flex; align-items: center; gap: 12px; cursor: pointer; }
-.drop.is-over { background: var(--blue-soft); }
-.drop input { display: none; }
 
 /* Tablets */
 .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -335,7 +332,7 @@ button.row { width: 100%; border: 0; background: none; text-align: left; font: i
 .site-ic svg.i { width: 24px; height: 24px; stroke-width: 2; }
 .site .chk { position: absolute; top: 8px; right: 8px; width: 16px; height: 16px; color: var(--blue); stroke-width: 3; }
 
-/* Grid erstellen */
+/* Grids und Add-ons */
 .tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
 .tool { border: 0; background: var(--card); border-radius: 18px; padding: 18px; text-align: left; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: start; box-shadow: var(--shadow); color: var(--text); text-decoration: none; transition: transform .12s, box-shadow .15s; }
 .tool:hover { box-shadow: 0 2px 4px rgba(0,0,0,.05), 0 10px 30px rgba(0,0,0,.08); }
@@ -343,7 +340,9 @@ button.row { width: 100%; border: 0; background: none; text-align: left; font: i
 .tool .site-ic { grid-row: span 2; }
 .tool b { font-size: 15.5px; font-weight: 600; align-self: end; }
 .tool small { color: var(--muted); font-size: 13px; line-height: 1.35; }
-.tool .ext { font-size: 12px; color: var(--blue); }
+.addon { position: relative; display: grid; }
+.addon .tool { padding-right: 52px; }
+.addon-x { position: absolute; top: 10px; right: 10px; }
 .studio { background: var(--card); border-radius: var(--r-card); box-shadow: var(--shadow); overflow: hidden; }
 .studio-bar { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .studio-bar b { flex: 1; font-size: 15px; }
@@ -416,9 +415,9 @@ img.shot { display: block; width: 100%; max-height: 70vh; object-fit: contain; b
     <nav class="seg" role="tablist" aria-label="Bereich">
       <button type="button" role="tab" data-view="tablets" aria-selected="true">Tablets</button>
       <button type="button" role="tab" data-view="setup" aria-selected="false">Einrichten</button>
-      <button type="button" role="tab" data-view="grids" aria-selected="false">Grid erstellen</button>
+      <button type="button" role="tab" data-view="grids" aria-selected="false">Grids</button>
     </nav>
-    <div class="bar-right" id="server-state"></div>
+    <div class="bar-right" id="kit-version"></div>
   </div>
 </header>
 
@@ -479,16 +478,9 @@ img.shot { display: block; width: 100%; max-height: 70vh; object-fit: contain; b
 
       <div class="group-h">App</div>
       <div class="group">
-        <div class="row"><span class="lbl">Quelle</span>
-          <div class="seg small" role="radiogroup" aria-label="Quelle">
-            <input type="radio" name="src" id="src-laptop" value="laptop" checked><label for="src-laptop">Dieser Laptop</label>
-            <input type="radio" name="src" id="src-net" value="net"><label for="src-net">Internet</label>
-          </div>
-        </div>
-        <label class="row" id="row-ip"><span class="lbl">Adresse</span><select id="ip" aria-label="Adresse dieses Laptops"></select></label>
-        <label class="row" id="row-net" hidden><span class="lbl">Link</span><input type="url" id="net-url" spellcheck="false" placeholder="https://…/freekiosk.apk"></label>
-        <div class="row"><span class="lbl">Datei</span><span class="val" id="apk-line">–</span></div>
+        <div class="row"><span class="lbl">FreeKiosk</span><span class="val" id="apk-line">–</span></div>
       </div>
+      <p class="foot">Das Tablet lädt die App beim Einrichten selbst aus dem Internet (GitHub).</p>
 
       <details class="more" id="adv">
         <summary><svg class="i" data-ic="chev"></svg>Mehr</summary>
@@ -500,13 +492,8 @@ img.shot { display: block; width: 100%; max-height: 70vh; object-fit: contain; b
         <div class="group">
           <label class="row"><span class="lbl">Sprache</span><input type="text" id="locale" value="de_AT" spellcheck="false"></label>
           <label class="row"><span class="lbl">Zeitzone</span><input type="text" id="tz" value="Europe/Vienna" spellcheck="false"></label>
-          <div class="row"><span class="lbl">Prüfsumme</span>
-            <div class="seg small" role="radiogroup" aria-label="Prüfsumme">
-              <input type="radio" name="cs" id="cs-sig" value="sig" checked><label for="cs-sig">Signatur</label>
-              <input type="radio" name="cs" id="cs-pkg" value="pkg"><label for="cs-pkg">Datei</label>
-            </div>
-          </div>
-          <label class="row drop" id="drop"><span class="lbl">Eigene APK</span><span class="grow" id="drop-title" style="color:var(--blue)">Auswählen …</span><input type="file" id="apk" accept=".apk,application/vnd.android.package-archive"></label>
+          <label class="row"><span class="lbl">App-Link</span><input type="url" id="apk-url" spellcheck="false" placeholder="https://github.com/…/FreeKiosk-…-provisioning.apk"></label>
+          <label class="row"><span class="lbl">Prüfsumme</span><input type="text" id="apk-sig" spellcheck="false" placeholder="Signatur der App, 43 Zeichen"></label>
           <label class="row col"><span>Weitere Einstellungen</span><textarea id="fk-extra" rows="3" spellcheck="false" placeholder="schluessel=wert"></textarea></label>
         </div>
         <div class="group-h">QR-Inhalt <button type="button" class="link" id="btn-copy">Kopieren</button></div>
@@ -552,10 +539,10 @@ img.shot { display: block; width: 100%; max-height: 70vh; object-fit: contain; b
   <div class="selbar" id="t-selbar" hidden></div>
 </main>
 
-<!-- Grid erstellen -->
+<!-- Grids -->
 <main class="wrap" id="v-grids" hidden>
   <div class="title-row">
-    <div><h1>Grid erstellen</h1><p class="sub">Grids bauen und direkt auf Tablets laden.</p></div>
+    <div><h1>Grids</h1><p class="sub">Grid-Dateien und Add-ons direkt auf Tablets laden.</p></div>
   </div>
   <div id="g-body"></div>
 </main>
@@ -579,6 +566,7 @@ img.shot { display: block; width: 100%; max-height: 70vh; object-fit: contain; b
 
 <div class="hud" id="hud" role="status"></div>
 
+<script src="config.js"></script>
 <script src="qrcode.js"></script>
 <script src="provisioning.js"></script>
 <script src="mqtt.js"></script>

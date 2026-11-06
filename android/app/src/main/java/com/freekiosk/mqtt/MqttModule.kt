@@ -29,14 +29,18 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.os.StatFs
-import android.provider.Settings
-import android.speech.tts.TextToSpeech
 import android.util.Log
 import android.widget.Toast
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.freekiosk.CameraPhotoModule
 import com.freekiosk.ScreenController
+// inDiKo: our own parts (com/freekiosk/indiko), see INDIKO.md
+import com.freekiosk.indiko.AdminSignature
+import com.freekiosk.indiko.BluetoothMqttBridge
+import com.freekiosk.indiko.WifiNetworksBridge
+import com.freekiosk.indiko.speech.EmbeddedVoices
+import com.freekiosk.indiko.speech.SpeechHub
 import org.json.JSONObject
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -111,56 +115,24 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
 
     private var mqttClient: KioskMqttClient? = null
 
-    // Bluetooth over MQTT (bt_power, bt_scan, bt_pair, bt_unpair). Changes republish the
-    // state, debounced so a scan that finds many devices does not flood the broker.
-    private val btPublishHandler = Handler(Looper.getMainLooper())
-    private val btPublishRunnable = Runnable { publishStatusNow() }
-    // Offline voices: TTS engines, signed install/uninstall, engine choice
-    private val ttsPackages: TtsPackageBridge by lazy {
-        TtsPackageBridge(
-            reactContext.applicationContext,
-            installer = { url, pkg, done ->
-                com.freekiosk.ManagedAppInstallerModule(reactContext).installFromUrl(
-                    url, null, pkg,
-                    com.facebook.react.bridge.PromiseImpl(
-                        com.facebook.react.bridge.Callback { _ -> done(true, "") },
-                        com.facebook.react.bridge.Callback { args ->
-                            val info = args.getOrNull(0) as? com.facebook.react.bridge.ReadableMap
-                            val message = try { info?.getString("message") } catch (_: Exception) { null }
-                            done(false, message ?: "Fehler")
-                        },
-                    ),
-                )
-            },
-            onChanged = {
-                btPublishHandler.removeCallbacks(btPublishRunnable)
-                btPublishHandler.postDelayed(btPublishRunnable, 400)
-            },
-            onEngineChanged = {
-                // An engine came or went: list the voices again
-                btPublishHandler.postDelayed({ com.freekiosk.speech.SpeechHub.refreshEngines() }, 500)
-            },
-        )
+    // inDiKo: Bluetooth, spare Wi-Fi networks and voices change the published state. It
+    // goes out again shortly after, debounced so a scan that finds many devices does not
+    // flood the broker.
+    private val publishHandler = Handler(Looper.getMainLooper())
+    private val publishRunnable = Runnable { publishStatusNow() }
+    private fun publishSoon(delayMs: Long = 400) {
+        publishHandler.removeCallbacks(publishRunnable)
+        publishHandler.postDelayed(publishRunnable, delayMs)
     }
 
-    // Spare Wi-Fi networks: signed wifi_add / wifi_remove, saved as Device Owner
-    private val wifiNets: WifiNetworksBridge by lazy {
-        WifiNetworksBridge(reactContext.applicationContext) {
-            btPublishHandler.removeCallbacks(btPublishRunnable)
-            btPublishHandler.postDelayed(btPublishRunnable, 400)
-        }
-    }
-    private val bt: BluetoothMqttBridge by lazy {
-        BluetoothMqttBridge(reactContext.applicationContext) {
-            btPublishHandler.removeCallbacks(btPublishRunnable)
-            btPublishHandler.postDelayed(btPublishRunnable, 400)
-        }
-    }
+    // inDiKo: spare Wi-Fi networks (signed wifi_add / wifi_remove) and Bluetooth (bt_*)
+    private val wifiNets: WifiNetworksBridge by lazy { WifiNetworksBridge(reactContext.applicationContext) { publishSoon() } }
+    private val bt: BluetoothMqttBridge by lazy { BluetoothMqttBridge(reactContext.applicationContext) { publishSoon() } }
 
     // ==================== JS status variables (same as HttpServerModule) ====================
 
     private var jsCurrentUrl: String = ""
-    private var jsStartUrl: String = ""
+    private var jsStartUrl: String = "" // inDiKo: the configured start page, next to the page that is open
     private var jsCanGoBack: Boolean = false
     private var jsLoading: Boolean = false
     private var jsBrightness: Int = 50
@@ -184,34 +156,20 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
 
     private var mediaPlayer: MediaPlayer? = null
 
-    // ==================== TTS ====================
-
     // ==================== Speech ====================
-    // Everything FreeKiosk says goes through SpeechHub: built-in offline voices and the
-    // Samsung/Google engines side by side, the same voices AsTeRICS sees in the WebView.
+    // inDiKo: everything FreeKiosk says goes through SpeechHub: built-in offline voices and
+    // the Samsung/Google engines side by side, the same voices AsTeRICS sees in the WebView.
 
-    private val speechStatusChanged: () -> Unit = {
-        btPublishHandler.removeCallbacks(btPublishRunnable)
-        btPublishHandler.postDelayed(btPublishRunnable, 600)
-    }
+    private val speechStatusChanged: () -> Unit = { publishSoon(600) }
 
     init {
-        com.freekiosk.speech.SpeechHub.init(reactContext.applicationContext)
-        com.freekiosk.speech.SpeechHub.setStatusListener(speechStatusChanged)
-        // Engines hidden by the old way of choosing an offline voice come back: with the
-        // speech hub nothing needs to be hidden any more
-        btPublishHandler.postDelayed({
-            try {
-                if (ttsPackages.restoreHiddenEngines()) com.freekiosk.speech.SpeechHub.refreshEngines()
-            } catch (e: Exception) {
-                Log.w(TAG, "Restoring hidden speech engines failed: ${e.message}")
-            }
-        }, 1500)
+        SpeechHub.init(reactContext.applicationContext)
+        SpeechHub.setStatusListener(speechStatusChanged)
     }
 
     private fun speakText(text: String, voice: String = "", lang: String = "") {
         try {
-            com.freekiosk.speech.SpeechHub.say(text, voice, lang.ifEmpty {
+            SpeechHub.say(text, voice, lang.ifEmpty {
                 detectLocaleForText(text).takeIf { it != java.util.Locale.getDefault() }?.toLanguageTag() ?: ""
             })
         } catch (e: Exception) {
@@ -223,14 +181,13 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
     private fun installVoice(params: JSONObject?) {
         val id = params?.optString("id", "") ?: ""
         val url = params?.optString("url", "") ?: ""
-        val hub = com.freekiosk.speech.SpeechHub
         AdminSignature.verify(reactContext.applicationContext, "voice_install", id, url, params)?.let {
-            com.freekiosk.speech.EmbeddedVoices.reportError(it)
+            EmbeddedVoices.reportError(it)
             speechStatusChanged()
             return
         }
-        com.freekiosk.speech.EmbeddedVoices.install(id, params?.optString("name", "") ?: "", params?.optString("lang", "") ?: "", url) {
-            hub.embeddedChanged()
+        EmbeddedVoices.install(id, params?.optString("name", "") ?: "", params?.optString("lang", "") ?: "", url) {
+            SpeechHub.embeddedChanged()
         }
     }
 
@@ -238,11 +195,21 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
     private fun removeVoice(params: JSONObject?) {
         val id = params?.optString("id", "") ?: ""
         AdminSignature.verify(reactContext.applicationContext, "voice_remove", id, "", params)?.let {
-            com.freekiosk.speech.EmbeddedVoices.reportError(it)
+            EmbeddedVoices.reportError(it)
             speechStatusChanged()
             return
         }
-        com.freekiosk.speech.EmbeddedVoices.remove(id) { com.freekiosk.speech.SpeechHub.embeddedChanged() }
+        EmbeddedVoices.remove(id) { SpeechHub.embeddedChanged() }
+    }
+
+    /** Signed voice_data {engine, ts, sig} over "voice_data|engine||ts": Samsung/Google download screen. */
+    private fun openVoiceData(params: JSONObject?) {
+        val engine = params?.optString("engine", "") ?: ""
+        val error = AdminSignature.verify(reactContext.applicationContext, "voice_data", engine, "", params)
+            ?: SpeechHub.openVoiceData(engine)
+        if (error != null) EmbeddedVoices.reportError(error)
+        else EmbeddedVoices.reportAction("Am Tablet ist die Seite zum Laden der Stimmen offen")
+        speechStatusChanged()
     }
 
     private fun detectLocaleForText(text: String): java.util.Locale {
@@ -407,6 +374,7 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
                     "screenOff" -> ScreenController.turnScreenOff(reactApplicationContext)
                     "tts" -> {
                         val text = params?.optString("text", "") ?: ""
+                        // inDiKo: optional voice and language (the kit's voice tests)
                         if (text.isNotEmpty()) speakText(text, params?.optString("voice", "") ?: "", params?.optString("lang", "") ?: "")
                     }
                     "toast" -> {
@@ -444,20 +412,17 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
                         client.imagePublisher?.setInterval(stream, seconds)
                         publishStatusNow()
                     }
+                    // inDiKo: Bluetooth, voices and spare Wi-Fi networks
                     "btPower" -> bt.setEnabled(params?.optBoolean("value", false) ?: false)
                     "btScan" -> bt.scan(params?.optInt("seconds", 15) ?: 15)
                     "btScanStop" -> bt.stopScan()
                     "btPair" -> bt.pair(params?.optString("address", ""))
                     "btUnpair" -> bt.unpair(params?.optString("address", ""))
-                    "ttsInstall" -> ttsPackages.install(params)
-                    "ttsUninstall" -> ttsPackages.uninstall(params)
-                    "ttsEngine" -> ttsPackages.useEngine(params)
-                    "ttsVoiceData" -> ttsPackages.openVoiceData(params)
                     "voiceInstall" -> installVoice(params)
                     "voiceRemove" -> removeVoice(params)
-                    "voicePrefer" -> com.freekiosk.speech.SpeechHub.setPreferred(params?.optString("value", "") ?: "")
-                    "speechStop" -> com.freekiosk.speech.SpeechHub.stop()
-                    "speechBridge" -> com.freekiosk.speech.SpeechHub.setBridgeEnabled(params?.optBoolean("value", true) ?: true)
+                    "voicePrefer" -> SpeechHub.setPreferred(params?.optString("value", "") ?: "")
+                    "speechStop" -> SpeechHub.stop()
+                    "voiceData" -> openVoiceData(params)
                     "wifiAdd" -> wifiNets.add(params)
                     "wifiRemove" -> wifiNets.remove(params)
                     "setMode" -> {
@@ -796,6 +761,7 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
             put("ip", getLocalIpAddress())
             put("hostname", "freekiosk")
             put("version", com.freekiosk.BuildConfig.VERSION_NAME)
+            put("build", com.freekiosk.BuildConfig.KIT_BUILD) // inDiKo: CI tag, e.g. v2.1.0-beta.1-qr10
             val dpm = reactContext.getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
             put("isDeviceOwner", dpm.isDeviceOwnerApp(reactContext.packageName))
             put("kioskMode", jsKioskMode)
@@ -808,7 +774,7 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
             put("deviceName", Build.DEVICE)
             put("product", Build.PRODUCT)
             put("uptime", android.os.SystemClock.elapsedRealtime() / 1000) // seconds
-            // false: Android may put FreeKiosk to sleep, network included (missed commands)
+            // inDiKo: false means Android may put FreeKiosk to sleep, network included (missed commands)
             put("batteryExempt", try {
                 (reactContext.getSystemService(Context.POWER_SERVICE) as PowerManager)
                     .isIgnoringBatteryOptimizations(reactContext.packageName)
@@ -819,28 +785,23 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
         // WiFi
         status.put("wifi", getWifiInfo())
 
-        // Bluetooth (adapter, bonded and found devices, last result of a bt_* command)
+        // inDiKo: Bluetooth (adapter, bonded and found devices, last result of a bt_* command)
         try {
             status.put("bluetooth", bt.status())
         } catch (e: Exception) {
             status.put("bluetooth", JSONObject().put("supported", false).put("lastError", e.message ?: "error"))
         }
 
-        // Text-to-speech engines (offline voices)
+        // inDiKo: voices FreeKiosk speaks with (built-in and Android engines), preferred output.
+        // Throwable: a missing native library or class must not cost the whole status
         try {
-            status.put("tts", ttsPackages.status())
-        } catch (e: Exception) {
-            status.put("tts", JSONObject().put("lastError", e.message ?: "error"))
+            status.put("speech", SpeechHub.status())
+        } catch (e: Throwable) {
+            Log.e(TAG, "Speech status failed", e)
+            status.put("speech", JSONObject().put("lastError", "${e.javaClass.simpleName}: ${e.message ?: ""}"))
         }
 
-        // Voices FreeKiosk speaks with (built-in and Android engines), preferred output
-        try {
-            status.put("speech", com.freekiosk.speech.SpeechHub.status())
-        } catch (e: Exception) {
-            status.put("speech", JSONObject().put("lastError", e.message ?: "error"))
-        }
-
-        // Saved Wi-Fi networks (names only)
+        // inDiKo: saved Wi-Fi networks (names only)
         try {
             status.put("wifiNetworks", wifiNets.status())
         } catch (e: Exception) {
@@ -1268,14 +1229,14 @@ class MqttModule(private val reactContext: ReactApplicationContext) :
     override fun onCatalystInstanceDestroy() {
         super.onCatalystInstanceDestroy()
         try {
-            btPublishHandler.removeCallbacks(btPublishRunnable)
+            publishHandler.removeCallbacks(publishRunnable)
             bt.release()
             mqttClient?.disconnect()
             mqttClient = null
             instance = null
             sensorManager?.unregisterListener(this)
             stopAudio()
-            com.freekiosk.speech.SpeechHub.setStatusListener(null)
+            SpeechHub.setStatusListener(null)
             Log.d(TAG, "MqttModule cleaned up")
         } catch (e: Exception) {
             Log.e(TAG, "Error during cleanup: ${e.message}")

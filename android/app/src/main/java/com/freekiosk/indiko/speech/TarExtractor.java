@@ -1,4 +1,4 @@
-package com.freekiosk.speech;
+package com.freekiosk.indiko.speech;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;

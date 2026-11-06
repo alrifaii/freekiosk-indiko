@@ -156,21 +156,6 @@
   }
   function lsGet(key) { try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (e) { return null; } }
   function lsSet(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
-  async function api(path, opts) {
-    const o = Object.assign({ cache: "no-store" }, opts || {});
-    if (o.json !== undefined) {
-      o.method = o.method || "POST";
-      o.headers = Object.assign({ "Content-Type": "application/json", "X-Kit": "1" }, o.headers || {});
-      o.body = JSON.stringify(o.json);
-      delete o.json;
-    }
-    const r = await fetch(path, o);
-    const text = await r.text();
-    let data = null;
-    try { data = JSON.parse(text); } catch (e) { data = { error: text }; }
-    if (!r.ok) throw new Error((data && data.error) || `Fehler ${r.status}`);
-    return data;
-  }
 
   // ---------------------------------------------------------------- navigation
   const views = ["tablets", "setup", "grids"];
@@ -191,8 +176,9 @@
   const persistIds = ["ssid", "sec-wpa", "sec-wep", "sec-none", "mq-name", "fk-url",
     "fk-filter", "fk-zoom", "fk-screen", "fk-statusbar", "fk-power", "fk-lockbt", "fk-corner", "fk-reset",
     "fk-mqtt", "mq-broker", "mq-port", "mq-topic", "mq-user",
-    "src-laptop", "src-net", "ip", "net-url", "locale", "tz", "hidden-net", "keep-apps", "skip-edu", "cs-sig", "cs-pkg", "fk-extra"];
-  const state = { info: null, sig: null, pkg: null, scheme: 0, apkName: "", apkSize: 0, loading: true };
+    "locale", "tz", "hidden-net", "keep-apps", "skip-edu", "fk-extra"];
+  // The app the tablets download: from config.js (written by the build), or entered under Mehr
+  const CFG = Object.assign({ version: "", apkUrl: "", signatureChecksum: "" }, window.KIT_CONFIG || {});
   const changeHooks = [];
 
   function randomChannel() {
@@ -209,8 +195,8 @@
       if (old) {
         saved = {};
         for (const k of ["ssid", "mq-name", "fk-url", "fk-screen", "fk-statusbar", "fk-corner", "fk-lockbt", "fk-reset", "fk-mqtt",
-          "mq-broker", "mq-port", "mq-user", "mq-topic", "src-laptop", "src-net", "ip", "net-url", "locale", "tz", "hidden-net",
-          "keep-apps", "skip-edu", "cs-sig", "cs-pkg", "fk-extra"]) if (k in old) saved[k] = old[k];
+          "mq-broker", "mq-port", "mq-user", "mq-topic", "locale", "tz", "hidden-net",
+          "keep-apps", "skip-edu", "fk-extra"]) if (k in old) saved[k] = old[k];
         if (old.sec) { saved["sec-wpa"] = old.sec === "WPA"; saved["sec-wep"] = old.sec === "WEP"; saved["sec-none"] = old.sec === "NONE"; }
         if (saved["mq-topic"] === "freekiosk") delete saved["mq-topic"];
       } else saved = {};
@@ -222,6 +208,11 @@
       if (el.type === "checkbox" || el.type === "radio") el.checked = !!saved[id]; else el.value = saved[id];
     }
     if (!$("mq-topic").value.trim()) $("mq-topic").value = randomChannel();
+    // An own link counts only for the kit version it was entered in; a newer kit brings its own
+    const own = lsGet("fkkit.apk");
+    const useOwn = own && (own.version === CFG.version || !CFG.apkUrl);
+    $("apk-url").value = useOwn ? own.url || "" : CFG.apkUrl;
+    $("apk-sig").value = useOwn ? own.sig || "" : CFG.signatureChecksum;
     let pw = [];
     try { pw = JSON.parse(sessionStorage.getItem("fkkit.wifipw") || "[]"); } catch (e) { pw = []; }
     wifiMore = (Array.isArray(saved["wifi-more"]) ? saved["wifi-more"] : []).slice(0, MAX_WIFI)
@@ -238,6 +229,9 @@
     // Spare networks: names are kept, passwords only for this browser tab (like the main one)
     out["wifi-more"] = wifiMore.map((w) => w.s).filter((s) => s.trim());
     lsSet(STORE, out);
+    const url = $("apk-url").value.trim(), sig = $("apk-sig").value.trim();
+    if (url !== CFG.apkUrl || sig !== CFG.signatureChecksum) lsSet("fkkit.apk", { version: CFG.version, url, sig });
+    else { try { localStorage.removeItem("fkkit.apk"); } catch (e) { /* private mode */ } }
     try { sessionStorage.setItem("fkkit.wifipw", JSON.stringify(wifiMore.map((w) => [w.s, w.p]))); } catch (e) { /* private mode */ }
   }
 
@@ -264,13 +258,6 @@
   }
 
   const radio = (name) => document.querySelector(`input[name="${name}"]:checked`).value;
-  function apkUrl() {
-    if (radio("src") === "laptop") {
-      if (!state.info || !$("ip").value) return "";
-      return `http://${$("ip").value}:${state.info.port}/freekiosk.apk`;
-    }
-    return $("net-url").value.trim();
-  }
 
   // Shared secret for commands that change apps on the tablets (installing voices).
   // Created once per kit, written into every QR; FreeKiosk accepts such commands
@@ -299,8 +286,7 @@
 
   function opts() {
     return {
-      url: apkUrl(), localSource: radio("src") === "laptop", checksumType: radio("cs"),
-      sigChecksum: state.sig, pkgChecksum: state.pkg,
+      url: $("apk-url").value, sigChecksum: $("apk-sig").value,
       ssid: $("ssid").value, password: $("pw").value, security: radio("sec"), hidden: $("hidden-net").checked,
       keepApps: $("keep-apps").checked, skipEdu: $("skip-edu").checked, locale: $("locale").value, tz: $("tz").value,
       fk: {
@@ -344,14 +330,13 @@
 
   let lastText = "";
   function render() {
-    const laptop = radio("src") === "laptop";
-    $("row-ip").hidden = !laptop;
-    $("row-net").hidden = laptop;
     $("mqtt-group").hidden = !$("fk-mqtt").checked;
+    const url = $("apk-url").value.trim();
+    const tag = (url.match(/\/releases\/download\/([^/]+)\//) || [])[1];
+    $("apk-line").textContent = !url ? "Link fehlt, unter Mehr eintragen"
+      : url === CFG.apkUrl && CFG.version ? CFG.version : tag ? `${tag} (eigener Link)` : "eigener Link";
 
     const res = buildProvisioning(opts());
-    if (laptop && !state.info) res.problems.unshift("Start.bat läuft nicht. Oder Quelle „Internet“.");
-    if (laptop && state.info && state.loading) res.problems.unshift("App wird gelesen …");
     lastText = JSON.stringify(res.json);
     $("json").textContent = JSON.stringify(res.json, null, 2);
 
@@ -363,7 +348,7 @@
 
     let modules = 0;
     try { modules = drawQR($("qr"), lastText, cardSize()); } catch (e) { add("bad", "QR zu groß: " + e.message); }
-    const ready = !res.demo && res.problems.length === 0 && modules > 0;
+    const ready = res.problems.length === 0 && modules > 0;
     const pill = $("pill");
     pill.className = "pill " + (ready ? "ok" : "bad");
     fill(pill, h("span", { class: "dot " + (ready ? "ok" : "bad") }), ready ? "Bereit zum Scannen" : res.problems.length + (res.problems.length === 1 ? " Punkt offen" : " Punkte offen"));
@@ -390,29 +375,6 @@
     $("full-name").textContent = $("mq-name").value.trim();
   }
 
-  function showApk(name, size, r) {
-    state.sig = r.signatureChecksum; state.pkg = r.packageChecksum; state.scheme = r.scheme;
-    state.apkName = name; state.apkSize = size;
-    const ver = state.info && state.info.version && name === state.info.apkName ? state.info.version + " · " : "";
-    $("apk-line").textContent = `${ver}${(size / 1048576).toFixed(1)} MB${r.scheme ? "" : " · v1"}`;
-    $("apk-line").title = name + "\n" + (r.signatureChecksum || r.packageChecksum);
-    if (!r.signatureChecksum) $("cs-pkg").checked = true;
-  }
-
-  async function handleFile(file) {
-    if (!file) return;
-    $("drop-title").textContent = file.name + " …";
-    try {
-      showApk(file.name, file.size, await apkChecksums(await file.arrayBuffer()));
-      $("drop-title").textContent = file.name;
-      state.loading = false;
-      if (state.info) $("src-net").checked = true;
-    } catch (e) {
-      $("drop-title").textContent = e.message;
-    }
-    render();
-  }
-
   function nextTablet() {
     const el = $("mq-name");
     const m = el.value.match(/^(.*?)(\d+)\s*$/);
@@ -421,50 +383,12 @@
     hud(el.value);
   }
 
-  function serverBadge() {
-    const box = $("server-state");
-    if (state.info) fill(box, h("span", { class: "dot ok" }), "Start.bat läuft");
-    else fill(box, h("span", { class: "dot" }), "Ohne Start.bat");
-  }
-
-  let readyResolve;
-  const ready = new Promise((r) => { readyResolve = r; });
-
-  async function boot() {
-    const saved = load();
-    try { state.info = await api("/api/info"); } catch (e) { state.info = null; }
-    serverBadge();
-    readyResolve(state.info);
-
-    const ipSel = $("ip");
-    ipSel.textContent = "";
-    if (state.info) {
-      const ips = Array.isArray(state.info.ips) ? state.info.ips : (state.info.ips ? [state.info.ips] : []);
-      for (const a of ips) ipSel.appendChild(h("option", { value: a.address }, a.name ? `${a.address} · ${a.name}` : a.address));
-      if (saved.ip && ips.some((a) => a.address === saved.ip)) ipSel.value = saved.ip;
-      if (!ips.length) ipSel.appendChild(h("option", { value: "" }, "Kein Netzwerk"));
-      if (state.info.releaseUrl && !$("net-url").value) $("net-url").value = state.info.releaseUrl;
-      render();
-      try {
-        const buf = await (await fetch("/freekiosk.apk", { cache: "no-store" })).arrayBuffer();
-        showApk(state.info.apkName, buf.byteLength, await apkChecksums(buf));
-      } catch (e) {
-        $("apk-line").textContent = "konnte nicht gelesen werden";
-      }
-    } else {
-      ipSel.appendChild(h("option", { value: "" }, "nur mit Start.bat"));
-      $("src-net").checked = true;
-      $("apk-line").textContent = "unter Mehr auswählen";
-    }
-    state.loading = false;
+  function boot() {
+    load();
+    if (CFG.version) fill($("kit-version"), "Kit ", CFG.version);
     render();
   }
 
-  $("apk").addEventListener("change", (e) => handleFile(e.target.files[0]));
-  const drop = $("drop");
-  ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("is-over"); }));
-  ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("is-over"); }));
-  drop.addEventListener("drop", (e) => handleFile(e.dataTransfer.files[0]));
   $("form").addEventListener("input", render);
   $("form").addEventListener("change", render);
   $("form").addEventListener("submit", (e) => e.preventDefault());
@@ -497,11 +421,9 @@
   });
 
   window.Kit = {
-    $, h, fill, icon, toggle, hud, ago, api, lsGet, lsSet, mqttSettings, adminKey, setAdminKey, show,
+    $, h, fill, icon, toggle, hud, ago, lsGet, lsSet, mqttSettings, adminKey, setAdminKey, show,
     onShow(view, fn) { (listeners[view] = listeners[view] || []).push(fn); },
     onChange(fn) { changeHooks.push(fn); },
-    ready,
-    get info() { return state.info; },
     get view() { return current; },
   };
 

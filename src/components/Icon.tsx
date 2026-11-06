@@ -139,7 +139,7 @@ export type IconName =
   | 'motion-sensor'
   | 'keyboard'
   | 'keyboard-outline'
-  | 'backspace-outline'
+  | 'backspace-outline' // inDiKo: PIN keypad
   | 'certificate'
   | 'certificate-outline'
   | 'chart-bar'

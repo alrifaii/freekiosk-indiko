@@ -38,7 +38,7 @@ class DeviceAdminReceiver : android.app.admin.DeviceAdminReceiver() {
         const val KEY_CLOUD_URL = "cloud_url"
         const val KEY_ORG_ID = "org_id"
 
-        // Kiosk settings carried by a setup-wizard QR; replayed by
+        // inDiKo: kiosk settings carried by a setup-wizard QR; replayed by
         // MainActivity.applyProvisioningConfig() on first launch.
         const val PROVISIONING_CONFIG_PREFS = "FreeKioskProvisioningConfig"
         private val CLOUD_KEYS = setOf(KEY_TOKEN, KEY_CLOUD_URL, KEY_ORG_ID)
@@ -175,7 +175,7 @@ class DeviceAdminReceiver : android.app.admin.DeviceAdminReceiver() {
     override fun onProfileProvisioningComplete(context: Context, intent: Intent) {
         super.onProfileProvisioningComplete(context, intent)
         try {
-            persistProvisioningConfig(context, intent)
+            persistProvisioningConfig(context, intent) // inDiKo
         } catch (e: Exception) {
             Log.e(TAG, "Could not store the provisioning settings: ${e.message}", e)
         }

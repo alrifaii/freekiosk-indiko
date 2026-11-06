@@ -1,54 +1,9 @@
-// FreeKiosk QR-Kit: APK-Pruefsummen und Aufbau des Android-Provisionierungs-JSON.
-// Ohne DOM-Zugriff, damit es sich auch in Node testen laesst.
+// inDiKo Kit: the Android provisioning JSON that goes into the QR code.
+// The tablet downloads FreeKiosk itself from the link (GitHub release) and checks it
+// against the signature checksum; both come from config.js, written by the build.
+// No DOM access, so it can be tested in Node.
 const COMPONENT = "com.freekiosk/com.freekiosk.DeviceAdminReceiver";
 const X = "android.app.extra.PROVISIONING_";
-const EXAMPLE_CHECKSUM = "BEISPIEL_erst_APK_auswaehlen_xxxxxxxxxxxx";
-
-function readSignerCert(buf) {
-  const u8 = new Uint8Array(buf);
-  const dv = new DataView(buf);
-  const n = u8.length;
-  let eocd = -1;
-  for (let i = n - 22; i >= Math.max(0, n - 22 - 65535); i--) {
-    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
-  }
-  if (eocd < 0) throw new Error("Das ist keine APK-Datei.");
-  const cdOff = dv.getUint32(eocd + 16, true);
-  if (cdOff < 32 || new TextDecoder().decode(u8.subarray(cdOff - 16, cdOff)) !== "APK Sig Block 42") return null;
-  const size = Number(dv.getBigUint64(cdOff - 24, true));
-  const start = cdOff - size - 8;
-  if (start < 0 || Number(dv.getBigUint64(start, true)) !== size) throw new Error("Der Signaturblock der APK ist beschädigt.");
-  const blocks = {};
-  for (let p = start + 8; p < cdOff - 24;) {
-    const len = Number(dv.getBigUint64(p, true));
-    blocks[dv.getUint32(p + 8, true)] = { off: p + 12, len: len - 4 };
-    p += 8 + len;
-  }
-  const scheme = blocks[0xf05368c0] ? 3 : blocks[0x7109871a] ? 2 : 0;
-  if (!scheme) return null;
-  const b = scheme === 3 ? blocks[0xf05368c0] : blocks[0x7109871a];
-  const lp = (o) => ({ len: dv.getUint32(o, true), off: o + 4 });
-  const signer = lp(lp(b.off).off);
-  const signedData = lp(signer.off);
-  const digests = lp(signedData.off);
-  const certs = lp(digests.off + digests.len);
-  const cert = lp(certs.off);
-  return { scheme, der: u8.slice(cert.off, cert.off + cert.len) };
-}
-
-function b64url(bytes) {
-  let s = "";
-  for (const x of bytes) s += String.fromCharCode(x);
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-async function apkChecksums(buf) {
-  const sha = async (d) => new Uint8Array(await crypto.subtle.digest("SHA-256", d));
-  const out = { packageChecksum: b64url(await sha(buf)), signatureChecksum: null, scheme: 0 };
-  const signer = readSignerCert(buf);
-  if (signer) { out.signatureChecksum = b64url(await sha(signer.der)); out.scheme = signer.scheme; }
-  return out;
-}
 
 // Messages stay short: the kit shows them under the QR code.
 function buildProvisioning(o) {
@@ -58,26 +13,17 @@ function buildProvisioning(o) {
   const url = (o.url || "").trim();
   let parsed = null;
   try { parsed = new URL(url); } catch (e) { parsed = null; }
-  if (!parsed || !/^https?:$/.test(parsed.protocol)) problems.push("Download-Link fehlt.");
+  if (!parsed || !/^https?:$/.test(parsed.protocol)) problems.push("Link zur App fehlt (unter Mehr).");
   else {
-    if (parsed.protocol === "http:" && !o.localSource) warnings.push("Link ohne https.");
+    if (parsed.protocol === "http:") warnings.push("Link ohne https.");
     if (!/\.apk$/i.test(parsed.pathname)) warnings.push("Link endet nicht auf .apk.");
   }
   json[X + "DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION"] = url;
 
-  let demo = false;
-  if (o.checksumType === "pkg") {
-    if (o.pkgChecksum) json[X + "DEVICE_ADMIN_PACKAGE_CHECKSUM"] = o.pkgChecksum;
-    else { demo = true; json[X + "DEVICE_ADMIN_PACKAGE_CHECKSUM"] = EXAMPLE_CHECKSUM; }
-  } else {
-    if (o.sigChecksum) json[X + "DEVICE_ADMIN_SIGNATURE_CHECKSUM"] = o.sigChecksum;
-    else {
-      demo = true;
-      json[X + "DEVICE_ADMIN_SIGNATURE_CHECKSUM"] = EXAMPLE_CHECKSUM;
-      if (o.pkgChecksum) problems.push("APK ohne v2/v3-Signatur. Unter Mehr „Datei-Hash“ wählen.");
-    }
-  }
-  if (demo && !o.pkgChecksum) problems.push("Noch keine App geladen.");
+  // SHA-256 of the signing certificate, base64url: the same for every build with one key
+  const sig = (o.sigChecksum || "").trim();
+  if (!/^[A-Za-z0-9_-]{43}$/.test(sig)) problems.push("Prüfsumme der App fehlt (unter Mehr).");
+  json[X + "DEVICE_ADMIN_SIGNATURE_CHECKSUM"] = sig;
 
   const ssid = (o.ssid || "").trim();
   if (ssid) {
@@ -179,7 +125,7 @@ function buildProvisioning(o) {
   const bytes = new TextEncoder().encode(JSON.stringify(json)).length;
   if (bytes > 1500) warnings.push("Sehr dichter QR. Vollbild nutzen.");
 
-  return { json, problems, warnings, infos, demo, bytes };
+  return { json, problems, warnings, infos, bytes };
 }
 
-if (typeof module !== "undefined") module.exports = { readSignerCert, apkChecksums, buildProvisioning, b64url };
+if (typeof module !== "undefined") module.exports = { buildProvisioning };

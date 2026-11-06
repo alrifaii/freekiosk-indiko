@@ -1,6 +1,8 @@
-package com.freekiosk.speech
+package com.freekiosk.indiko.speech
 
+import android.app.admin.DevicePolicyManager
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -14,6 +16,8 @@ import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.freekiosk.DeviceAdminReceiver
+import com.freekiosk.LockTaskCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
@@ -43,7 +47,6 @@ object SpeechHub {
     private const val TAG = "SpeechHub"
     private const val PREFS = "FreeKioskSpeech"
     private const val KEY_PREFERRED = "preferred"
-    private const val KEY_BRIDGE = "bridge"
     const val PREFER_EMBEDDED = "embedded"
     const val EMB = "fk:emb:"
     const val SYS = "fk:sys:"
@@ -78,6 +81,7 @@ object SpeechHub {
         app = context.applicationContext
         EmbeddedVoices.init(context)
         Thread { EmbeddedVoices.available() }.apply { name = "fk-voice-lib" }.start()
+        unhideOldEngines(app!!)
         main.post { refreshEngines() }
         // A speech engine installed, updated or removed: list again
         try {
@@ -125,19 +129,11 @@ object SpeechHub {
         main.post { changed(true) }
     }
 
-    fun bridgeEnabled(): Boolean = try { prefs().getBoolean(KEY_BRIDGE, true) } catch (_: Exception) { true }
-
-    fun setBridgeEnabled(on: Boolean) {
-        prefs().edit().putBoolean(KEY_BRIDGE, on).apply()
-        main.post { emit("bridge", if (on) "on" else "off"); changed(false) }
-    }
-
     // ---------------------------------------------------------------- Android engines
 
     private fun shortLabel(pkg: String, label: String) = when (pkg) {
         "com.samsung.SMT" -> "Samsung"
         "com.google.android.tts" -> "Google"
-        "com.k2fsa.sherpa.onnx.tts.engine" -> "sherpa-App"
         else -> label
     }
 
@@ -373,6 +369,68 @@ object SpeechHub {
         for (e in engines.values) if (e.ready) e.voices = readVoices(e)
     }
 
+    // ---------------------------------------------------------------- Samsung/Google voice data
+
+    private fun dpm(ctx: Context) = ctx.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+    private fun admin(ctx: Context) = ComponentName(ctx, DeviceAdminReceiver::class.java)
+    private var lockTaskBefore: Array<String>? = null
+    private val restoreLockTask = Runnable {
+        val ctx = app ?: return@Runnable
+        val before = lockTaskBefore ?: return@Runnable
+        lockTaskBefore = null
+        try { dpm(ctx).setLockTaskPackages(admin(ctx), before) } catch (_: Exception) {}
+    }
+
+    /**
+     * Samsung's and Google's engines download more languages only in their own screen, and
+     * someone has to tap there. This opens that screen on the tablet, let through the kiosk
+     * lock for five minutes. Returns null when it opened, otherwise the reason (German, for
+     * the kit). The new voices then show up by themselves (rereadVoices).
+     */
+    fun openVoiceData(engine: String): String? {
+        val ctx = app ?: return "Sprachausgabe noch nicht bereit"
+        val target = engine.ifEmpty { defaultEngine() ?: engines.keys.firstOrNull() ?: "" }
+        if (target.isEmpty()) return "Keine Sprachausgabe gefunden"
+        val intent = Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)
+            .setPackage(target)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        @Suppress("DEPRECATION")
+        val screen = ctx.packageManager.resolveActivity(intent, 0)
+        if (screen == null) return "Diese Sprachausgabe hat keine Seite zum Laden von Stimmen"
+        return try {
+            if (dpm(ctx).isDeviceOwnerApp(ctx.packageName)) {
+                val current = LockTaskCompat.readPackages(dpm(ctx), admin(ctx))
+                if (current != null && target !in current) {
+                    if (lockTaskBefore == null) lockTaskBefore = current
+                    dpm(ctx).setLockTaskPackages(admin(ctx), (current.toList() + target).distinct().toTypedArray())
+                }
+                main.removeCallbacks(restoreLockTask)
+                main.postDelayed(restoreLockTask, 5 * 60 * 1000L)
+            }
+            ctx.startActivity(intent)
+            null
+        } catch (e: Exception) {
+            main.post(restoreLockTask)
+            "Seite ließ sich nicht öffnen: ${e.message}"
+        }
+    }
+
+    /**
+     * qr6 to qr8 chose an offline voice by hiding Samsung's and Google's engines. Nothing
+     * has to be hidden any more, so they come back once; a no-op on every other tablet.
+     */
+    private fun unhideOldEngines(ctx: Context) {
+        try {
+            val old = ctx.getSharedPreferences("FreeKioskAdmin", Context.MODE_PRIVATE)
+            val hidden = old.getStringSet("hidden_tts_engines", null) ?: return
+            for (pkg in hidden) try { dpm(ctx).setApplicationHidden(admin(ctx), pkg, false) } catch (_: Exception) {}
+            old.edit().remove("hidden_tts_engines").apply()
+            Log.i(TAG, "Speech engines visible again: $hidden")
+        } catch (e: Exception) {
+            Log.w(TAG, "Unhiding old engines: ${e.message}")
+        }
+    }
+
     // ---------------------------------------------------------------- speaking
 
     /** Speaks text; id identifies the utterance in the events (start, end, error). */
@@ -488,7 +546,6 @@ object SpeechHub {
             Triple(engs, voices, defaultEngine() ?: "")
         }
         val j = JSONObject()
-            .put("bridge", bridgeEnabled())
             .put("preferred", preferred())
             .put("androidDefault", list?.third ?: "")
             .put("engines", list?.first ?: JSONArray())

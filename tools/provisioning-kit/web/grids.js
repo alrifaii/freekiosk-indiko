@@ -1,32 +1,31 @@
-// inDiKo Kit: "Grid erstellen" view. Builds grids (calendar generator, built in) or
-// takes a grid file and loads it straight into AsTeRICS Grid on chosen tablets:
-// the file waits on the MQTT server as a retained message, the Grid agent on each
-// tablet fetches it and imports it like "Import custom data from file".
+// inDiKo Kit: "Grids" view. Takes a grid file and loads it straight into AsTeRICS Grid
+// on chosen tablets: the tablets fetch it in pieces over MQTT, the Grid agent on each
+// imports it like "Import custom data from file".
+//
+// Add-ons: web pages the user adds by link (for example the calendar generator). The kit
+// shows one in a frame with ?kit=1; a finished grid comes back as a message
+//   window.parent.postMessage({ typ: "asterics-grd", name: "x.grd", inhalt: "<grd JSON>" }, "*")
+// and goes to the tablets like a dropped file. Nothing of an add-on is in the kit itself.
 (function () {
   "use strict";
-  const { $, h, fill, icon, toggle, hud } = Kit;
+  const { $, h, fill, icon, toggle, hud, lsGet, lsSet } = Kit;
   const T = () => window.KitTablets;
   const MAX_BYTES = 20 * 1024 * 1024;
   const CHUNK = 48 * 1024; // passes the message size limit of every common broker
   const OFFER_MS = 5 * 60 * 1000; // how long the kit answers tablets that say "ready"
+  const ADDONS = "fkkit.addons";
   const te = new TextEncoder();
 
-  const TOOLS = [
-    { title: "AsTeRICS Grid", text: "Grids selbst bauen und bearbeiten. Mit Online-Konto kommen Änderungen von selbst auf die Tablets.",
-      url: "https://grid.asterics.eu/", ic: "ag:th-large" },
-    { title: "ARASAAC", text: "Piktogramme suchen, dieselben wie in AsTeRICS Grid.",
-      url: "https://arasaac.org/pictograms/search", ic: "image" },
-    { title: "Global Symbols", text: "Tafeln online bauen und drucken, viele freie Symbolsätze.",
-      url: "https://globalsymbols.com/", ic: "board" },
-    { title: "OpenSymbols", text: "Freie Symbole aus vielen Sammlungen durchsuchen.",
-      url: "https://www.opensymbols.org/", ic: "search" },
-    { title: "Open Board Format", text: "Tafeln anderer Programme als .obf oder .obz: hier oben einfach hineinziehen.",
-      url: "https://www.openboardformat.org/", ic: "box" },
-    { title: "AsTeRICS-Helfer", text: "Weitere Werkzeuge von AsTeRICS: Grids übersetzen, eigene Stimmen am PC.",
-      url: "https://github.com/asterics/Asterics-AAC-Helper", ic: "wand" },
-  ];
-
   let studio = null;
+
+  const addons = () => (Array.isArray(lsGet(ADDONS)) ? lsGet(ADDONS) : []).filter((a) => a && /^https?:\/\//i.test(a.url || ""));
+  function nameFromUrl(u) {
+    try {
+      const x = new URL(u);
+      const last = x.pathname.split("/").filter(Boolean).pop() || "";
+      return decodeURIComponent(last.replace(/\.html?$/i, "")) || x.hostname;
+    } catch (e) { return u; }
+  }
 
   function build() {
     const body = $("g-body");
@@ -46,44 +45,74 @@
     });
 
     studio = h("div", { class: "studio", hidden: true });
-    const calendar = h("button", { type: "button", class: "tool", onclick: openCalendar },
-      h("span", { class: "site-ic own" }, icon("ag:calendar-alt")),
-      h("b", {}, "Kalender"),
-      h("small", {}, "Tages-, Wochen- und Monatspläne mit ARASAAC-Symbolen. Fertig verlinkt, gleich auf die Tablets."));
+    const tiles = h("div", { class: "tools" });
+    const link = h("input", { type: "url", placeholder: "https://…", spellcheck: "false", "aria-label": "Link des Add-ons" });
+    const name = h("input", { type: "text", placeholder: "Name (optional)", spellcheck: "false", "aria-label": "Name des Add-ons" });
+    const add = () => {
+      const url = link.value.trim();
+      if (!/^https?:\/\/[^/]+/i.test(url)) { hud("Bitte einen Link mit https://", "bad"); return; }
+      const list = addons().filter((a) => a.url !== url);
+      list.push({ name: name.value.trim() || nameFromUrl(url), url });
+      lsSet(ADDONS, list);
+      link.value = ""; name.value = "";
+      drawTiles();
+      hud("Add-on hinzugefügt");
+    };
+    link.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+    function drawTiles() {
+      const list = addons();
+      fill(tiles, drop, ...list.map((a) =>
+        h("div", { class: "addon" },
+          h("button", { type: "button", class: "tool", onclick: () => openAddon(a) },
+            h("span", { class: "site-ic own" }, icon("box")),
+            h("b", {}, a.name),
+            h("small", {}, (() => { try { return new URL(a.url).hostname; } catch (e) { return a.url; } })())),
+          h("button", { type: "button", class: "icon-btn addon-x", "aria-label": `${a.name} entfernen`, onclick: () => {
+            if (!confirm(`Add-on „${a.name}“ entfernen?`)) return;
+            lsSet(ADDONS, addons().filter((x) => x.url !== a.url));
+            if (studio._addon === a.url) { studio.hidden = true; studio.replaceChildren(); }
+            drawTiles();
+          } }, icon("x")))));
+    }
+    drawTiles();
     fill(body,
-      h("div", { class: "tools" }, calendar, drop),
+      tiles,
       studio,
-      h("div", { class: "group-h" }, h("span", {}, "Mehr Werkzeuge")),
-      h("div", { class: "tools" }, ...TOOLS.map((t) =>
-        h("a", { class: "tool", href: t.url, target: "_blank", rel: "noopener" },
-          h("span", { class: "site-ic" }, icon(t.ic)),
-          h("b", {}, t.title),
-          h("small", {}, t.text, " ", h("span", { class: "ext" }, "Öffnen ↗"))))),
-      h("p", { class: "foot", style: "margin-top:18px" },
-        "Der Kalender-Generator kommt aus Asterics-AAC-Helper (AGPL-3.0), Quelltext im Ordner tools/calendar-generator."));
+      h("div", { class: "group-h" }, h("span", {}, "Add-on hinzufügen")),
+      h("div", { class: "group" },
+        h("label", { class: "row" }, h("span", { class: "lbl" }, "Link"), link),
+        h("label", { class: "row" }, h("span", { class: "lbl" }, "Name"), name),
+        h("div", { class: "row", style: "background:none" }, h("button", { type: "button", class: "btn", onclick: add }, icon("plus"), "Hinzufügen"))),
+      h("p", { class: "foot" }, "Ein Add-on ist eine Webseite, zum Beispiel der Kalender-Generator. Es läuft hier im Kit und kann fertige Grids direkt an die Tablets geben."));
   }
 
-  function openCalendar() {
-    if (!studio.hidden) { studio.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
-    const frame = h("iframe", { src: "kalender/index.html?kit=1", title: "Kalender-Generator", allow: "clipboard-write" });
+  function openAddon(a) {
+    let src = a.url;
+    try { const u = new URL(a.url); u.searchParams.set("kit", "1"); src = u.href; } catch (e) { /* keep as is */ }
+    const frame = h("iframe", { src, title: a.name, allow: "clipboard-write",
+      sandbox: "allow-scripts allow-same-origin allow-forms allow-downloads allow-popups allow-modals" });
     fill(studio,
       h("div", { class: "studio-bar" },
-        h("span", { class: "site-ic own", style: "width:30px;height:30px;border-radius:9px;box-shadow:none" }, icon("ag:calendar-alt")),
-        h("b", {}, "Kalender"),
-        h("a", { class: "btn sm ghost", href: "kalender/index.html", target: "_blank", rel: "noopener" }, "Eigenes Fenster"),
-        h("button", { type: "button", class: "icon-btn", "aria-label": "Schließen", onclick: () => { studio.hidden = true; studio.replaceChildren(); } }, icon("x"))),
+        h("span", { class: "site-ic own", style: "width:30px;height:30px;border-radius:9px;box-shadow:none" }, icon("box")),
+        h("b", {}, a.name),
+        h("a", { class: "btn sm ghost", href: a.url, target: "_blank", rel: "noopener" }, "Eigenes Fenster"),
+        h("button", { type: "button", class: "icon-btn", "aria-label": "Schließen", onclick: () => { studio.hidden = true; studio.replaceChildren(); studio._addon = ""; } }, icon("x"))),
       frame);
     studio.hidden = false;
     studio._frame = frame;
+    studio._addon = a.url;
+    studio._name = a.name;
     setTimeout(() => studio.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   }
 
-  // The calendar generator hands over its file instead of downloading it (?kit=1).
+  // A grid from the open add-on (any origin: the user added it)
   window.addEventListener("message", (e) => {
-    if (e.origin !== location.origin || !studio || !studio._frame || e.source !== studio._frame.contentWindow) return;
+    if (!studio || studio.hidden || !studio._frame || e.source !== studio._frame.contentWindow) return;
     const d = e.data;
     if (!d || d.typ !== "asterics-grd" || typeof d.inhalt !== "string") return;
-    openSend({ name: String(d.name || "kalender.grd"), bytes: te.encode(d.inhalt) }, { open: true, what: "Kalender" });
+    if (d.inhalt.length > MAX_BYTES) { hud("Grid zu groß (höchstens 20 MB)", "bad"); return; }
+    const fname = String(d.name || "grid.grd").replace(/[\\/:*?"<>|]/g, "_");
+    openSend({ name: /\.grd$/i.test(fname) ? fname : fname + ".grd", bytes: te.encode(d.inhalt) }, { open: true, what: studio._name || "Grid" });
   });
 
   async function takeFile(f) {

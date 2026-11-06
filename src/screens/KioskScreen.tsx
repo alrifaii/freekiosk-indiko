@@ -53,7 +53,7 @@ interface KioskScreenProps {
 /** Duration (ms) the motion pre-check window runs before activating the screensaver. */
 const MOTION_PRE_CHECK_DELAY_MS = 10_000;
 
-// MQTT belongs to the KioskScreen mounted last. A remount (QR config replayed with a
+// inDiKo: MQTT belongs to the KioskScreen mounted last. A remount (QR config replayed with a
 // restart, back from settings) runs the old instance's cleanup after the new one has
 // started MQTT, and that cleanup used to stop it: the tablet stayed offline until someone
 // pressed "Connect" in the settings. Only the newest mount may stop it now.
@@ -753,7 +753,7 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
           setWebViewKey(prev => prev + 1);
           // Persist to storage so Settings shows updated value
           await StorageService.saveUrl(newUrl);
-          // A remote "open this page" is an admin decision. With a whitelist active only
+          // inDiKo: a remote "open this page" is an admin decision. With a whitelist active only
           // the start page itself would load and every link inside the new site would be
           // blocked, so the new site joins the whitelist: its origin and its subdomains
           // (www.youtube.com sends phones to m.youtube.com, Classroom signs in on
@@ -1033,7 +1033,7 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
       try {
         await ApiService.autoStartMqtt();
       } catch (e) {
-        // Expected when MQTT is disabled or not configured. "Already running" is a
+        // Expected when MQTT is disabled or not configured. inDiKo: "already running" is a
         // client the previous mount started: restart it with the current settings.
         if (/already/i.test(String((e as Error).message))) {
           await ApiService.stopMqtt();
@@ -1043,7 +1043,7 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
         }
       }
 
-      // Android puts an app that is not exempt from battery optimization to sleep, network
+      // inDiKo: Android puts an app that is not exempt from battery optimization to sleep, network
       // included, and MQTT then misses commands. Ask once, right after setup, while
       // someone is at the tablet; the dialog needs one tap.
       try {
@@ -1061,7 +1061,7 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
 
     initApiService();
 
-    // MQTT watchdog: what the "Connect" button in the settings does, done automatically
+    // inDiKo: MQTT watchdog, what the "Connect" button in the settings does, done automatically
     // when the client has been disconnected for two checks in a row.
     let mqttMisses = 0;
     const mqttWatchdog = setInterval(async () => {
@@ -1106,7 +1106,7 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
     return () => {
       mqttAppStateSubscription.remove();
       clearInterval(mqttWatchdog);
-      // A newer KioskScreen owns MQTT and the command listener by now
+      // inDiKo: a newer KioskScreen owns MQTT and the command listener by now
       if (mountGeneration === kioskMountGeneration) {
         ApiService.stopMqtt();
         ApiService.destroy();
@@ -1195,7 +1195,7 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
   // Update API status when relevant state changes
   useEffect(() => {
     ApiService.updateStatus({
-      // What is really on screen; the start page goes separately
+      // inDiKo: what is really on screen; the start page goes separately
       currentUrl: currentWebViewUrlRef.current || url,
       startUrl: url,
       brightness: Math.round(effectiveBrightness * 100),
@@ -3184,7 +3184,7 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
               }}
               onPageNavigated={(navUrl: string) => {
                 currentWebViewUrlRef.current = navUrl;
-                // Report the page that is really open (MQTT, REST), not only the start page
+                // inDiKo: report the page that is really open (MQTT, REST), not only the start page
                 ApiService.updateStatus({ currentUrl: navUrl });
                 // In dashboard mode (viewing a tile), always reset the inactivity timer on
                 // any page navigation so self-refreshing pages don't trigger an unexpected

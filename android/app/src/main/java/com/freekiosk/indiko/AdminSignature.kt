@@ -1,4 +1,4 @@
-package com.freekiosk.mqtt
+package com.freekiosk.indiko
 
 import android.content.Context
 import android.util.Base64

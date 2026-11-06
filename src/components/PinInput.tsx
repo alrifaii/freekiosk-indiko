@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 
 const { KioskModule, AudioControlModule, FlashlightModule, RotationControlModule } = NativeModules;
 
+// inDiKo: PIN keypad
 const PIN_MAX_DIGITS = 6;
 const KEYPAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok'];
 
@@ -118,7 +119,7 @@ const PinInput: React.FC<PinInputProps> = ({ onSuccess }) => {
     }
   };
 
-  // On-screen keypad for numeric PINs. The system keyboard is unreliable on a
+  // inDiKo: on-screen keypad for numeric PINs. The system keyboard is unreliable on a
   // kiosk tablet: Android hides it as soon as a hardware keyboard is paired, and
   // assistive switch/scanning interfaces present themselves as exactly that, so
   // the PIN screen used to be a dead end. The text field stays for a real
@@ -323,7 +324,7 @@ const PinInput: React.FC<PinInputProps> = ({ onSuccess }) => {
             onChangeText={handlePinChange}
             secureTextEntry={true}
             keyboardType={pinMode === 'alphanumeric' ? 'default' : 'numeric'}
-            showSoftInputOnFocus={pinMode === 'alphanumeric'}
+            showSoftInputOnFocus={pinMode === 'alphanumeric'} // inDiKo: numeric uses the keypad
             maxLength={pinMode === 'alphanumeric' ? undefined : PIN_MAX_DIGITS}
             placeholder={pinMode === 'alphanumeric' ? t('components.pinInput.passwordPlaceholder') : '••••'}
             placeholderTextColor="#999999"
@@ -337,6 +338,7 @@ const PinInput: React.FC<PinInputProps> = ({ onSuccess }) => {
             onSubmitEditing={handleSubmit}
           />
 
+          {/* inDiKo: keypad for numeric PINs */}
           {pinMode === 'numeric' ? (
             <View style={styles.keypad}>
               {KEYPAD_KEYS.map(key => (

@@ -102,7 +102,7 @@
             <action android:name="com.android.phone.EmergencyDialer.DIAL" />
         </intent>
         <package android:name="com.android.phone" />
-        <!-- Text-to-speech engines, listed and chosen over MQTT (TtsPackageBridge) -->
+        <!-- inDiKo: text-to-speech engines (Samsung, Google), listed and bound by SpeechHub -->
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>

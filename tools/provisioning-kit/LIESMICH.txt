@@ -8,17 +8,25 @@ ohne Verwaltungssoftware. Entstanden im Projekt inDiKo an der FH Technikum Wien.
 
 Starten
 -------
-Windows:        Start.bat doppelklicken. Firewall-Frage mit "Zulassen" beantworten
-                (private Netzwerke). Das schwarze Fenster offen lassen.
-macOS, Linux:   start.command (braucht Python 3).
+Windows:        Start.bat doppelklicken.
+macOS, Linux:   web/index.html im Browser oeffnen (Chrome, Edge oder Firefox).
 
-Im Browser oeffnet sich das Kit mit drei Bereichen: Tablets, Einrichten,
-Grid erstellen.
+Das Kit ist nur eine Webseite. Es laeuft ganz im Browser, ohne Server und ohne
+Installation, braucht aber Internet (MQTT-Server). Es hat drei Bereiche: Tablets,
+Einrichten, Grids.
+
+Umstieg von einem Kit mit Server (bis qr10): das neue Kit startet leer. Einmal im
+alten Kit unter Tablets > Regler-Symbol den Schluessel kopieren und im neuen dort
+einfuegen, und unter Einrichten > Fernsteuerung denselben Kanal eintragen. Sonst
+sieht das neue Kit die schon eingerichteten Tablets nicht.
 
 
 Einrichten
 ----------
 WLAN, Name, PIN eintragen. Der QR-Code wird gruen ("Bereit zum Scannen").
+Das Tablet laedt FreeKiosk beim Einrichten selbst von GitHub (Release dieses Kits),
+es braucht dafuer Internet ueber das WLAN im QR-Code. Link und Pruefsumme der App
+stehen unter Mehr, sie kommen mit dem Kit (web/config.js).
 Am Tablet: auf Werkseinstellungen zuruecksetzen, am ersten Willkommen-Bildschirm
 sechsmal tippen, QR scannen, mit "Weiter" durchklicken. FreeKiosk startet mit allen
 Einstellungen. Fuer das naechste Tablet "Naechstes Tablet" (zaehlt den Namen hoch).
@@ -61,15 +69,21 @@ tippen. Spaeter: im Kit "Am Tablet fragen" und am Tablet "Zulassen".
 Der Browser verbindet sich direkt per WebSocket mit dem MQTT-Server.
 
 
-Grid erstellen
---------------
-Kalender: Tages-, Wochen- und Monatsplaene mit ARASAAC-Symbolen bauen und mit
-"An Tablets senden" direkt in AsTeRICS Grid laden. Vorhandene Grids bleiben.
+Grids
+-----
+Dateien (.grd aus AsTeRICS, .obf/.obz aus anderen Programmen) in das Feld ziehen und
+mit "An Tablets senden" direkt in AsTeRICS Grid laden. Vorhandene Grids bleiben.
 Jedes Tablet meldet sich, dann schickt das Kit die Datei gepackt in kleinen Teilen.
-Dafuer muss das Kit-Fenster offen bleiben, bis "importiert" erscheint.
-Eigene Dateien (.grd aus AsTeRICS, .obf/.obz aus anderen Programmen) einfach in das
-Feld ziehen und an Tablets senden. Auf dem Tablet muss AsTeRICS Grid offen sein.
-Dazu Links zu Werkzeugen rund um AsTeRICS (ARASAAC, Global Symbols, OpenSymbols).
+Dafuer muss das Kit-Fenster offen bleiben, bis "importiert" erscheint. Auf dem
+Tablet muss AsTeRICS Grid offen sein.
+
+Add-ons: Webseiten, die Grids bauen, zum Beispiel der Kalender-Generator. Unter
+"Add-on hinzufuegen" den Link eintragen, dann erscheint es als Kachel und laeuft im
+Kit. Fertige Grids gibt es direkt an "An Tablets senden" weiter. Die Add-ons merkt
+sich der Browser. Ein Add-on schickt ein Grid so an das Kit:
+  window.parent.postMessage({ typ: "asterics-grd", name: "plan.grd",
+                              inhalt: "<Inhalt der .grd-Datei>" }, "*")
+Das Kit haengt an den Link ?kit=1 an, daran erkennt das Add-on, dass es im Kit laeuft.
 
 
 Stimmen
@@ -81,8 +95,7 @@ FreeKiosk spricht selbst, mit zwei Arten von Stimmen nebeneinander:
     Tablets die beste Wahl: klingt fast wie "sehr gut" und antwortet schneller.
   - die Stimmen von Samsung und Google, die schon auf dem Tablet sind.
 AsTeRICS sieht alle in FreeKiosk unter "Stimme". In Android muss nichts umgestellt
-werden, ein Neustart ist nicht noetig, und eine eigene Stimmen-App braucht es nicht
-mehr (eine alte sherpa-App bietet das Kit zum Entfernen an).
+werden, ein Neustart ist nicht noetig, und eine eigene Stimmen-App braucht es nicht.
 
 Standard-Stimme: spricht, wenn in AsTeRICS "Standard" gewaehlt ist. "Eingebaut"
 nimmt die eingebaute Stimme der Sprache, sonst die von Android.
@@ -115,9 +128,9 @@ Datei.
 WLAN-Debugging (einmal pro Tablet, optional)
 --------------------------------------------
 Ein einziges Recht kann FreeKiosk nur ueber ADB bekommen, nicht ueber den QR:
-WRITE_SECURE_SETTINGS. Damit
-  - bleibt die Bildschirmtastatur bei jedem Taster sichtbar, nicht nur beim Puck.js
-  - kann FreeKiosk seine Bedienungshilfe selbst einschalten
+WRITE_SECURE_SETTINGS. Damit bleibt die Bildschirmtastatur bei jedem Taster
+sichtbar, nicht nur beim Puck.js. Gebraucht wird WLAN-Debugging auch zum
+Aktualisieren ohne Zuruecksetzen (naechster Abschnitt).
 Ohne USB-Kabel, mit dem Android-Werkzeug "platform-tools" am Laptop:
   1. Tablet: unten rechts siebenmal tippen, PIN, in FreeKiosk die
      Android-Einstellungen oeffnen. Tablet-Info > Softwareinformationen >
@@ -132,13 +145,27 @@ Laptop und Tablet muessen im selben WLAN sein. Das Recht bleibt, bis die App
 entfernt wird.
 
 
+FreeKiosk am Tablet aktualisieren
+---------------------------------
+Ein neues Kit bringt die neue App nicht von selbst aufs Tablet. Welche Version dort
+laeuft, steht im Kit unter Tablets > Tablet > Details > FreeKiosk. Ab qr10 steht die
+Nummer dabei (2.1.0-beta.1-qr10), ohne Nummer ist es qr9 oder aelter.
+Ohne Zuruecksetzen (Einstellungen und Device Owner bleiben), mit WLAN-Debugging wie
+oben, Schritte 1 bis 3 bis einschliesslich "adb connect". Die APK liegt auf GitHub
+beim Release (Releases > qrN > FreeKiosk-...-provisioning.apk):
+  adb install -r FreeKiosk-v2.1.0-beta.1-qrN-provisioning.apk
+"Success" heisst fertig. Kommt FreeKiosk nicht von selbst zurueck: Home tippen.
+Sonst Tablet zuruecksetzen und mit dem QR-Code des neuen Kits neu einrichten.
+Meldet adb INSTALL_FAILED_UPDATE_INCOMPATIBLE, ist die APK anders signiert (anderes
+Repo oder anderer Schluessel): dann nur Zuruecksetzen.
+
+
 Testen ohne Zuruecksetzen
 -------------------------
-Kit: Start.bat direkt aus dem Repo (tools\provisioning-kit) starten, eine APK aus
-einem Release daneben legen. Nach jeder Aenderung im Browser F5.
-App: tools\dev\Test-Tablet.bat baut FreeKiosk am Laptop und spielt es per
-WLAN-Debugging als Update aufs Tablet (Device Owner und Einstellungen bleiben).
-Einmalig noetig: Android Studio und Node 20.
+Kit: tools\provisioning-kit\web\index.html direkt aus dem Repo oeffnen, nach jeder
+Aenderung im Browser F5. Fuer einen QR-Code unter Einrichten > Mehr Link und
+Pruefsumme eintragen (aus web/config.js eines Release-Kits).
+App: Tag setzen, GitHub baut die APK, dann "adb install -r" wie oben.
 Neue Einstellungen aus dem QR (PIN, WLANs, Kit-Schluessel) gehen auch so:
   adb shell am start -n com.freekiosk/.MainActivity --es pin 1234 --es mqtt_admin_key KEY
 (KEY: im Kit unter Tablets > Regler-Symbol > Schluessel kopieren.)
@@ -146,8 +173,7 @@ Neue Einstellungen aus dem QR (PIN, WLANs, Kit-Schluessel) gehen auch so:
 
 Wichtig
 -------
-- Kommt die App vom Laptop, muessen Laptop und Tablets im selben WLAN sein. Viele
-  Schul-WLANs trennen Geraete voneinander: dann Handy-Hotspot oder Quelle "Internet".
+- Die Tablets brauchen beim Einrichten Internet: sie laden FreeKiosk von GitHub.
 - WLANs mit Benutzername (802.1X, eduroam) gehen im QR nicht.
 - WLAN-Passwoerter und PIN stehen im Klartext im QR. Ausdrucke wie Passwoerter
   behandeln. Ueber MQTT gehen WLAN-Passwoerter nur verschluesselt.
@@ -170,15 +196,18 @@ Wichtig
 Fehlersuche
 -----------
 - Kamera oeffnet sich nicht: nicht am allerersten Bildschirm getippt.
-- "Couldn't set up device": Pruefsumme passt nicht zur geladenen APK.
-- Download haengt, im Fenster erscheint kein "... hat die App geladen":
-  Firewall oder WLAN trennt Laptop und Tablet.
+- "Couldn't set up device": Pruefsumme passt nicht zur APK hinter dem Link, oder
+  das Tablet kommt nicht ins Internet (WLAN im QR-Code pruefen).
 - Tablets bleiben leer: Kanal im Kit und am Tablet vergleichen (Tablets > Regler-Symbol).
-- Start.bat schliesst sich sofort: Meldung lesen, meist fehlt die .apk-Datei.
+- Add-on bleibt leer: Link im Browser direkt oeffnen. Manche Seiten lassen sich
+  nicht in einem anderen Fenster zeigen, dann "Eigenes Fenster".
 - "Kein Schluessel auf dem Tablet": Tablet wurde vor dieser Version eingerichtet,
   einmal mit neuem QR-Code einrichten.
 - "Unterschrift passt nicht": anderer Laptop mit anderem Kit-Schluessel.
 - "Befehl abgelaufen": Uhrzeit von Laptop und Tablet vergleichen.
+- Stimmen-Seite sagt "aeltere FreeKiosk-Version": die App am Tablet ist aelter als
+  qr9, siehe "FreeKiosk am Tablet aktualisieren". "Schickt keine aktuellen Daten":
+  FreeKiosk am Tablet oeffnen oder das Tablet neu starten.
 - Stimme geladen, AsTeRICS zeigt sie nicht: AsTeRICS am Tablet neu laden
   (Kit: "Neu laden"), dann Stimmen-Check.
 - "Laden fehlgeschlagen": Internet am Tablet pruefen, freien Speicher (Stimme mal
@@ -190,5 +219,6 @@ Fehlersuche
 
 Lizenzen
 --------
-Symbole: Material Symbols von Google (Apache 2.0). Kalender-Generator:
-Asterics-AAC-Helper (AGPL-3.0), Quelltext in tools/calendar-generator.
+Symbole: Material Symbols von Google (Apache 2.0). QR-Code: qrcode-generator von
+Kazuhiko Arase (MIT). Eingebaute Stimmen in FreeKiosk: sherpa-onnx (Apache 2.0) mit
+Piper- und Coqui-Modellen (eigene Lizenzen, siehe sherpa-onnx).

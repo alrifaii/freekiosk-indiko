@@ -119,6 +119,11 @@ android {
         // Expose self-update flag to both Kotlin (BuildConfig) and JS (via UpdateModule constants)
         buildConfigField "boolean", "ENABLE_SELF_UPDATE", "${enableSelfUpdate}"
 
+        // inDiKo: the CI build (tag such as v2.1.0-beta.1-qr10), sent in the status so the
+        // kit can tell builds apart; versionName stays the same for all of them
+        def kitBuild = (project.findProperty('kitBuild') ?: '').toString().replaceAll(/[^A-Za-z0-9._-]/, '')
+        buildConfigField "String", "KIT_BUILD", "\"${kitBuild}\""
+
         // Play Store compliance: when -Pplaystore is set, replace REQUEST_INSTALL_PACKAGES
         // with INTERNET (already declared → deduplicated by manifest merger → effectively removed)
         // and disable UpdateInstallReceiver.
@@ -194,7 +199,7 @@ android {
 }
 
 // ---------------------------------------------------------------------------------------
-// Built-in offline voices: the sherpa-onnx speech library (Apache 2.0), native part only.
+// inDiKo: built-in offline voices, the sherpa-onnx speech library (Apache 2.0), native part only.
 // Its Kotlin side is android/app/src/main/java/com/k2fsa/sherpa/onnx/Tts.kt, copied from the
 // same version, because the JNI code reads those classes by name. The AAR is fetched once per
 // build and checked against its SHA-256; only arm64-v8a (Galaxy Tab A9+ and every tablet of the

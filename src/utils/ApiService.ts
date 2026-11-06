@@ -67,9 +67,9 @@ export interface ActionResult {
 export type MqttImageStream = 'screenshot' | 'camera';
 
 export interface AppStatus {
-  /** The page the WebView shows right now (follows links and redirects) */
+  /** The page the WebView shows right now (follows links and redirects). inDiKo */
   currentUrl: string;
-  /** The configured start page */
+  /** The configured start page. inDiKo */
   startUrl?: string;
   canGoBack: boolean;
   loading: boolean;
@@ -388,7 +388,7 @@ class ApiServiceClass {
         return ok();
 
       case 'requestBatteryExemption':
-        // The dialog needs one tap on the tablet; KioskModule lets it through lock task
+        // inDiKo: the dialog needs one tap on the tablet; KioskModule lets it through lock task
         NativeModules.KioskModule?.requestIgnoreBatteryOptimizations?.().catch(() => {});
         return ok();
 

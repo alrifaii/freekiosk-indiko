@@ -1,4 +1,4 @@
-package com.freekiosk.speech
+package com.freekiosk.indiko.speech
 
 import android.content.Context
 import android.media.AudioAttributes
@@ -345,6 +345,12 @@ object EmbeddedVoices {
     fun reportError(message: String) {
         lastError = message
         lastAction = ""
+    }
+
+    /** Result of another voice command (Samsung/Google voice data), shown in the kit. */
+    fun reportAction(message: String) {
+        lastAction = message
+        lastError = ""
     }
 
     private fun fail(message: String, onChanged: () -> Unit) {

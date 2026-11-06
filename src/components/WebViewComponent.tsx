@@ -15,10 +15,12 @@ import {
   Platform,
 } from 'react-native';
 
+// inDiKo: FreeKiosk speaks for the page (src/indiko/speechBridge.ts, native SpeechHub)
 const { FreeKioskSpeech } = NativeModules;
+const SPEECH_BRIDGE = !!FreeKioskSpeech;
 
 import KioskModule from '../utils/KioskModule';
-import { SPEECH_BRIDGE_JS } from '../utils/speechBridge';
+import { SPEECH_BRIDGE_JS } from '../indiko/speechBridge';
 import UpdateModule from '../utils/UpdateModule';
 import Icon, { IconName } from './Icon';
 import RNFS from 'react-native-fs';
@@ -175,34 +177,12 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
   const [printerNonce, setPrinterNonce] = useState<string>(makePrinterNonce);
   const printerNonceRef = useRef<string>(printerNonce);
 
-  // FreeKiosk's own speechSynthesis (utils/speechBridge.ts). On unless turned off over MQTT
-  // (speech_bridge OFF); a change reloads the page so it gets the other implementation.
-  const [speechBridgeOn, setSpeechBridgeOn] = useState<boolean>(!!FreeKioskSpeech);
-  const speechBridgeOnRef = useRef<boolean>(speechBridgeOn);
+  // inDiKo: speech events (start, end, error, voices) from FreeKiosk back to the page
   React.useEffect(() => {
-    if (!FreeKioskSpeech) return;
-    FreeKioskSpeech.isBridgeEnabled?.()
-      .then((on: boolean) => {
-        if (on === speechBridgeOnRef.current) return;
-        speechBridgeOnRef.current = on;
-        setSpeechBridgeOn(on);
-        webViewRef.current?.reload();
-      })
-      .catch(() => {});
+    if (!SPEECH_BRIDGE) return;
     const sub = DeviceEventEmitter.addListener('FreeKioskSpeechEvent', (raw: string) => {
-      let ev: any = null;
-      try { ev = JSON.parse(raw); } catch { return; }
-      if (ev?.type === 'bridge') {
-        const on = ev.id === 'on';
-        if (on !== speechBridgeOnRef.current) {
-          speechBridgeOnRef.current = on;
-          setSpeechBridgeOn(on);
-          setTimeout(() => webViewRef.current?.reload(), 300);
-        }
-        return;
-      }
-      if (!speechBridgeOnRef.current) return;
-      // raw is JSON, a valid JS object literal
+      // raw is JSON from the native side, a valid JS object literal
+      if (typeof raw !== 'string' || !raw.startsWith('{')) return;
       webViewRef.current?.injectJavaScript(`window.__fkSpeech && window.__fkSpeech.event(${raw}); true;`);
     });
     return () => sub.remove();
@@ -219,7 +199,7 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
 
         // Escape regex special chars except *, then convert * to .*
         const glob = (str: string) => str.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-        // "https://*.example.com/*": the leading * stands for subdomains only (and
+        // inDiKo: "https://*.example.com/*": the leading * stands for subdomains only (and
         // none), so it cannot reach into the path ("https://evil.org/x.example.com/").
         const sub = p.match(/^(https?:\/\/)?\*\.(.+)$/i);
         const escaped = sub ? glob(sub[1] || '') + '(?:[^/?#]+\\.)?' + glob(sub[2]) : glob(p);
@@ -609,9 +589,9 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
     document.addEventListener('compositionupdate', sendInteraction, true);
 
     // ==================== speechSynthesis bridge ====================
-    // Voices of FreeKiosk itself: built-in offline voices plus Samsung/Google (see
-    // utils/speechBridge.ts). Also injected before the page's scripts; this run is a no-op then.
-    ${speechBridgeOn ? SPEECH_BRIDGE_JS : '// speech bridge off: Chrome speechSynthesis'}
+    // inDiKo: voices of FreeKiosk itself, built-in offline voices plus Samsung/Google (see
+    // src/indiko/speechBridge.ts). Also injected before the page's scripts; this run is a no-op then.
+    ${SPEECH_BRIDGE ? SPEECH_BRIDGE_JS : ''}
 
     // PDF link interception: prevent <a download href="...pdf"> from triggering
     // the native Android DownloadManager — instead force a real navigation so
@@ -904,8 +884,8 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
         if (data.type === 'FIVE_TAP_CLICK' && onUserInteraction) {
           onUserInteraction({ isTap: true, x: data.x, y: data.y });
         } else if (data.type === 'FK_SPEECH_SPEAK') {
-          // speechSynthesis bridge: FreeKiosk speaks, events come back as FreeKioskSpeechEvent
-          if (FreeKioskSpeech?.speak && speechBridgeOnRef.current) {
+          // inDiKo: speechSynthesis bridge, FreeKiosk speaks, events come back as FreeKioskSpeechEvent
+          if (FreeKioskSpeech?.speak) {
             FreeKioskSpeech.speak(
               String(data.id || ''), String(data.text || ''), String(data.voiceURI || ''), String(data.lang || ''),
               Number(data.rate) || 1, Number(data.pitch) || 1, Number.isFinite(Number(data.volume)) ? Number(data.volume) : 1);
@@ -1227,8 +1207,8 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
         javaScriptEnabled={true}
         domStorageEnabled={true}
         injectedJavaScript={combinedInjectedJavaScript}
-        // Speech bridge before the page's scripts (Android: from onPageStarted, best effort)
-        injectedJavaScriptBeforeContentLoaded={speechBridgeOn ? SPEECH_BRIDGE_JS : undefined}
+        // inDiKo: speech bridge before the page's scripts (Android: from onPageStarted, best effort)
+        injectedJavaScriptBeforeContentLoaded={SPEECH_BRIDGE ? SPEECH_BRIDGE_JS : undefined}
         // Android ignores this (injection runs from onPageFinished), but the nonce rests on it.
         injectedJavaScriptForMainFrameOnly={true}
 

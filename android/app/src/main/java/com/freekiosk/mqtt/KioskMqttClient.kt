@@ -99,7 +99,7 @@ class KioskMqttClient(
     private var reconnectDelay = 1000L
     private val maxReconnectDelay = 30000L
 
-    /** One pending reconnect at a time, whichever path noticed the lost connection. */
+    /** inDiKo: one pending reconnect at a time, whichever path noticed the lost connection. */
     private val reconnectRunnable = Runnable { if (!_isConnected && !disconnectRequested) sendConnect() }
 
     private fun scheduleReconnect() {
@@ -462,7 +462,7 @@ class KioskMqttClient(
                     mainHandler.post {
                         onConnectionError?.invoke(errorMsg)
                         onConnectionChanged?.invoke(false)
-                        // A first connect that fails (no network yet after boot) must be
+                        // inDiKo: a first connect that fails (no network yet after boot) must be
                         // retried too, not only a connection that was lost later
                         scheduleReconnect()
                     }
@@ -757,7 +757,7 @@ class KioskMqttClient(
             "lock" -> "lockDevice" to null
 
             "url" -> "setUrl" to JSONObject().put("url", payload)
-            // Plain text, or JSON {text, voice?, lang?} to speak with one voice (the kit's tests)
+            // inDiKo: plain text, or JSON {text, voice?, lang?} to speak with one voice (the kit's tests)
             "tts" -> "tts" to (jsonPayload(payload)?.takeIf { it.has("text") } ?: JSONObject().put("text", payload))
             "toast" -> "toast" to JSONObject().put("text", payload)
             "launch_app" -> "launchApp" to JSONObject().put("package", payload)
@@ -788,7 +788,7 @@ class KioskMqttClient(
             "audio_stop" -> "audioStop" to null
             "audio_beep" -> "audioBeep" to null
 
-            // Bluetooth management. Payloads: bt_power ON/OFF, bt_scan seconds (or
+            // inDiKo: Bluetooth management. Payloads: bt_power ON/OFF, bt_scan seconds (or
             // {"seconds":15}), bt_pair / bt_unpair a MAC (or {"mac":"AA:BB:..."}).
             "bt_power" -> "btPower" to JSONObject().put("value", payload.trim().uppercase() == "ON")
             "bt_scan" -> {
@@ -800,21 +800,18 @@ class KioskMqttClient(
             "bt_pair" -> "btPair" to JSONObject().put("address", macFromPayload(payload))
             "bt_unpair" -> "btUnpair" to JSONObject().put("address", macFromPayload(payload))
 
-            // Offline voices. Payload is JSON {package, url?, ts, sig}, signed with the
-            // admin key from the provisioning QR (checked in TtsPackageBridge).
-            "tts_install" -> "ttsInstall" to jsonPayload(payload)
-            "tts_uninstall" -> "ttsUninstall" to jsonPayload(payload)
-            "tts_engine" -> "ttsEngine" to jsonPayload(payload)
-            "tts_voice_data" -> "ttsVoiceData" to jsonPayload(payload)
-            // Built-in voices: signed {id, url, name, lang, ts, sig} / {id, ts, sig}
+            // inDiKo: voices. Signed with the admin key from the provisioning QR (AdminSignature):
+            // voice_install {id, url, name, lang, ts, sig}, voice_remove {id, ts, sig},
+            // voice_data {engine, ts, sig} opens Samsung's/Google's download screen
             "voice_install" -> "voiceInstall" to jsonPayload(payload)
             "voice_remove" -> "voiceRemove" to jsonPayload(payload)
+            "voice_data" -> "voiceData" to jsonPayload(payload)
             // Preferred output when a page asks for no particular voice: "embedded" or an engine package
             "voice_prefer" -> "voicePrefer" to JSONObject().put("value", jsonPayload(payload)?.optString("value") ?: payload.trim())
             "speech_stop" -> "speechStop" to null
-            "speech_bridge" -> "speechBridge" to JSONObject().put("value", payload.trim().uppercase() != "OFF")
-            // Shows Android's "allow running in the background" dialog on the tablet
+            // inDiKo: shows Android's "allow running in the background" dialog on the tablet
             "battery_exempt" -> "requestBatteryExemption" to null
+            // inDiKo: spare Wi-Fi networks, signed {ssid, enc (encrypted password), type, ts, sig} / {ssid, ts, sig}
             "wifi_add" -> "wifiAdd" to jsonPayload(payload)
             "wifi_remove" -> "wifiRemove" to jsonPayload(payload)
 

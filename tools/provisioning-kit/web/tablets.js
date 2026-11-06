@@ -9,7 +9,7 @@
   const STORE = "fkkit.tablets";
   const URLS_STORE = "fkkit.urls";
   const STALE_MS = 3 * 60 * 1000;
-  const MAX_JSON = 256 * 1024;
+  const MAX_JSON = 1024 * 1024;
   const GRID_URL = "https://grid.asterics.eu/";
   const LIB_BASE = "https://asterics.github.io/Asterics-AAC-Data/";
   const PUBLIC_BROKERS = ["broker.emqx.io", "broker.hivemq.com", "test.mosquitto.org"];
@@ -149,9 +149,12 @@
     const kind = rest.slice(cut + 1);
     if (kind === "image/screenshot") return onScreenshot(tid, topic, payload, retained);
     if (kind !== "availability" && kind !== "state" && kind !== "page") return;
-    if (payload.length > MAX_JSON) return;
-    const text = td.decode(payload);
     const t = tablet(tid);
+    if (payload.length > MAX_JSON) {
+      if (kind === "state" && !retained) { t.tooBig = payload.length; scheduleRender(); }
+      return;
+    }
+    const text = td.decode(payload);
     if (kind === "availability") {
       t.online = text.trim() === "online";
       if (t.online) autoProbe(tid);
@@ -162,6 +165,7 @@
       if (kind === "state") {
         t.state = data;
         t.retained = retained;
+        t.tooBig = 0;
         if (!retained) { t.seen = Date.now(); batteryCheck(tid, t); }
       } else {
         t.page = data;
@@ -641,6 +645,8 @@
 
   // ---------------------------------------------------------------- helpers
   const g = (o, path) => path.split(".").reduce((v, k) => (v == null ? undefined : v[k]), o);
+  // "2.1.0-beta.1-qr10" from qr10 on; older builds only know the shared version name
+  const appVersion = (s) => String(g(s || {}, "device.build") || "").replace(/^v/, "") || g(s || {}, "device.version");
   function statusOf(t) {
     if (t.online === false) return "off";
     if (t.online === true) {
@@ -757,68 +763,14 @@
   }
 
   // ---------------------------------------------------------------- signed commands
-  // Installing or removing apps and switching the speech engine need the kit's admin
-  // key, which reached the tablet in the QR code. The tablet checks an HMAC-SHA256
-  // over "command|package|url|time" and accepts each command once, for 15 minutes.
-  function sha256(bytes) {
-    const K = [], H = [];
-    for (let n = 2, i = 0; i < 64; n++) {
-      let prime = true;
-      for (let d = 2; d * d <= n; d++) if (n % d === 0) { prime = false; break; }
-      if (!prime) continue;
-      if (i < 8) H.push((Math.pow(n, 1 / 2) * 4294967296) | 0);
-      K.push((Math.pow(n, 1 / 3) * 4294967296) | 0);
-      i++;
-    }
-    const len = bytes.length, total = ((len + 9 + 63) >> 6) << 6;
-    const m = new Uint8Array(total);
-    m.set(bytes);
-    m[len] = 0x80;
-    const dv = new DataView(m.buffer);
-    dv.setUint32(total - 4, (len * 8) >>> 0);
-    dv.setUint32(total - 8, Math.floor(len / 536870912));
-    const w = new Int32Array(64);
-    const rot = (x, n) => (x >>> n) | (x << (32 - n));
-    for (let o = 0; o < total; o += 64) {
-      for (let i = 0; i < 16; i++) w[i] = dv.getInt32(o + i * 4);
-      for (let i = 16; i < 64; i++) {
-        const a = w[i - 15], b = w[i - 2];
-        w[i] = (w[i - 16] + (rot(a, 7) ^ rot(a, 18) ^ (a >>> 3)) + w[i - 7] + (rot(b, 17) ^ rot(b, 19) ^ (b >>> 10))) | 0;
-      }
-      let [a, b, c, d, e, f, g2, hh] = H;
-      for (let i = 0; i < 64; i++) {
-        const t1 = (hh + (rot(e, 6) ^ rot(e, 11) ^ rot(e, 25)) + ((e & f) ^ (~e & g2)) + K[i] + w[i]) | 0;
-        const t2 = ((rot(a, 2) ^ rot(a, 13) ^ rot(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
-        hh = g2; g2 = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
-      }
-      H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0;
-      H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g2) | 0; H[7] = (H[7] + hh) | 0;
-    }
-    const out = new Uint8Array(32), ov = new DataView(out.buffer);
-    H.forEach((v, i) => ov.setInt32(i * 4, v));
-    return out;
-  }
-  function hmacSha256(key, msg) {
-    if (key.length > 64) key = sha256(key);
-    const k = new Uint8Array(64);
-    k.set(key);
-    const inner = new Uint8Array(64 + msg.length), outer = new Uint8Array(96);
-    for (let i = 0; i < 64; i++) { inner[i] = k[i] ^ 0x36; outer[i] = k[i] ^ 0x5c; }
-    inner.set(msg, 64);
-    outer.set(sha256(inner), 64);
-    return sha256(outer);
-  }
+  // Voices and Wi-Fi networks change the tablet itself, so these commands carry an
+  // HMAC-SHA256 with the kit's admin key, which reached the tablet in the QR code. The
+  // tablet accepts each command once, for 15 minutes (AdminSignature.kt).
   const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
   async function hmacHex(key, msg) {
     const te = new TextEncoder();
-    // crypto.subtle exists only on https:// and localhost; elsewhere the plain version
-    if (window.crypto && crypto.subtle) {
-      try {
-        const k = await crypto.subtle.importKey("raw", te.encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-        return hex(new Uint8Array(await crypto.subtle.sign("HMAC", k, te.encode(msg))));
-      } catch (e) { /* fall through */ }
-    }
-    return hex(hmacSha256(te.encode(key), te.encode(msg)));
+    const k = await crypto.subtle.importKey("raw", te.encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    return hex(new Uint8Array(await crypto.subtle.sign("HMAC", k, te.encode(msg))));
   }
   // Signed over "cmd|a|b|ts"; what a and b are depends on the command (see AdminSignature.kt).
   async function sendSigned(tids, cmd, a, b, fields, label) {
@@ -828,7 +780,6 @@
   }
   // A secret inside a command (Wi-Fi password): AES-256-GCM under SHA-256("purpose|key").
   async function encryptFor(purpose, text) {
-    if (!(window.crypto && crypto.subtle)) throw new Error("Geht nur, wenn das Kit über Start.bat (localhost) läuft");
     const te = new TextEncoder();
     const raw = await crypto.subtle.digest("SHA-256", te.encode(purpose + "|" + Kit.adminKey()));
     const key = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt"]);
@@ -1067,11 +1018,10 @@
         renderNetwork(ui.net, targets);
         renderBluetooth(ui.bt, tid, s.bluetooth);
         const info = [
-          ["WLAN", g(s, "wifi.ssid")], ["IP", g(s, "device.ip") || g(s, "wifi.ipAddress")], ["FreeKiosk", g(s, "device.version")],
+          ["WLAN", g(s, "wifi.ssid")], ["IP", g(s, "device.ip") || g(s, "wifi.ipAddress")], ["FreeKiosk", appVersion(s)],
           ["Android", g(s, "device.androidVersion")], ["Modell", g(s, "device.model")],
           ["Geräteverwaltung", g(s, "device.isDeviceOwner") === true ? "ja" : g(s, "device.isDeviceOwner") === false ? "nein" : null],
           ["Kiosk", g(s, "device.kioskMode") === true ? "an" : g(s, "device.kioskMode") === false ? "aus" : null],
-          ["Systemrecht", g(s, "tts.secureSettings") === true ? "ja (über WLAN-Debugging)" : g(s, "tts.secureSettings") === false ? "nein" : null],
           ["Offene Seite", openUrlOf(t)], ["Start-Seite", g(s, "webview.startUrl")], ["AsTeRICS", t.page && t.page.appVersion]];
         fill(ui.info, ...info.map(([k, v]) => row(h("span", { class: "lbl" }, k), h("span", { class: "val", style: "overflow-wrap:anywhere" }, v == null || v === "" ? "–" : String(v)))));
         ui.raw.textContent = JSON.stringify({ state: s, page: t.page }, null, 2);
@@ -1570,8 +1520,6 @@
   // FreeKiosk speaks itself: built-in offline voices (sherpa-onnx models it downloads and
   // unpacks) and every Android engine (Samsung, Google) by name, all side by side. AsTeRICS
   // sees them in FreeKiosk's browser. Nothing to switch in Android, no restart.
-  const SHERPA_PKG = "com.k2fsa.sherpa.onnx.tts.engine";
-  const OLD_TTS_APPS = [SHERPA_PKG, "com.CodeBySonu.VoxSherpa"];
   const MODELS_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/";
   const MODELS_API = "https://api.github.com/repos/k2-fsa/sherpa-onnx/releases";
   // Known models, used when the list cannot be loaded (sizes come with the live list)
@@ -1632,7 +1580,25 @@
     }
     return models;
   }
-  const speechOf = (tid) => g(tablets.get(tid) || {}, "state.speech");
+  const speechOf = (tid) => {
+    const sp = g(tablets.get(tid) || {}, "state.speech");
+    return sp && Array.isArray(sp.voices) ? sp : null;
+  };
+  // Why a tablet shows no voices: old app, no fresh data, or an error in the app
+  function noSpeechReason(tid) {
+    const t = tablets.get(tid) || {};
+    const sp = g(t, "state.speech");
+    if (t.tooBig) return ["Die Daten vom Tablet sind zu groß", `Es schickt ${Math.round(t.tooBig / 1024)} KB, der Kit liest bis 1024 KB. Bitte melden.`];
+    if (!t.state) return ["Noch keine Daten vom Tablet", "Warten, bis es sich meldet. Läuft FreeKiosk am Tablet?"];
+    if (t.retained && !t.seen) {
+      if (Date.now() - (conn.since || 0) < 45000) return ["Warte auf aktuelle Daten vom Tablet …", "Das dauert bis zu einer halben Minute."];
+      return ["Das Tablet schickt keine aktuellen Daten",
+        `Zu sehen sind nur alte, gespeicherte Daten (FreeKiosk ${appVersion(t.state) || "?"}). FreeKiosk am Tablet öffnen oder das Tablet neu starten. Bleibt es so, bitte melden.`];
+    }
+    if (sp && sp.lastError) return ["Der Stimmen-Teil am Tablet meldet einen Fehler", String(sp.lastError)];
+    return ["Am Tablet läuft noch eine ältere FreeKiosk-Version",
+      `FreeKiosk ${appVersion(t.state) || "?"} kann das noch nicht, erst ab qr9. Die neue APK aufs Tablet bringen, am Laptop mit „adb install -r“ (LIESMICH, „FreeKiosk am Tablet aktualisieren“) oder Tablet zurücksetzen und neu einrichten.`];
+  }
   function engineLabel(sp, engine) {
     if (engine === "embedded") return "Eingebaut";
     const e = ((sp && sp.engines) || []).find((x) => x.package === engine);
@@ -1648,7 +1614,7 @@
     const ui = { lang: tids.length ? gridLang(tids[0]) : "de" };
     const where = () => (tids.length > 1 ? `${tids.length} Tablets` : displayName(tids[0]));
     const ready = () => tids.filter((tid) => speechOf(tid));
-    const needNew = () => { hud("Braucht die neue FreeKiosk-Version (qr9)", "bad"); return false; };
+    const needNew = () => { hud(noSpeechReason(tids[0])[0], "bad"); return false; };
     const install = (m) => {
       const r = ready();
       if (!r.length) return needNew();
@@ -1715,14 +1681,14 @@
         if (models) drawCatalog();
         const sps = tids.map(speechOf);
         const known = sps.filter(Boolean);
-        const key = JSON.stringify([ui.lang, known.map((s) => [s.preferred, s.bridge, s.voices, s.engines, s.embedded, s.last]),
-          tids.map((tid) => (g(tablets.get(tid) || {}, "state.tts.engines") || []).filter((e) => OLD_TTS_APPS.includes(e.package)).map((e) => e.package))]);
+        const why = known.length ? null : noSpeechReason(tids[0]);
+        const key = JSON.stringify([ui.lang, why, known.map((s) => [s.preferred, s.voices, s.engines, s.embedded, s.last])]);
         if (!force && same(ui.voices, key)) return;
         if (force) same(ui.voices, key);
         if (!known.length) {
           fill(ui.prefer);
-          fill(ui.voices, h("div", { class: "notice" }, icon("speak"), h("span", { class: "grow" }, h("b", {}, "Braucht die neue FreeKiosk-Version (qr9)"),
-            h("small", {}, "Mit ihr spricht FreeKiosk selbst, mit eingebauten Stimmen und denen von Samsung und Google."))));
+          const who = tids.length > 1 ? `${displayName(tids[0])}: ` : "";
+          fill(ui.voices, h("div", { class: "notice" }, icon("speak"), h("span", { class: "grow" }, h("b", {}, who + why[0]), h("small", {}, why[1]))));
           fill(ui.more);
           return;
         }
@@ -1780,24 +1746,16 @@
           !busy && err ? h("div", { class: "foot err" }, err) : null,
           !busy && !err && ems.length === 1 && ems[0].lastAction ? h("div", { class: "foot" }, ems[0].lastAction) : null,
           last ? h("div", { class: "foot warn-t" }, `Letzte Probe: ${last.voice || "keine Stimme"} – ${last.message}`) : null,
-          unavailable ? h("div", { class: "foot warn-t" }, unavailable.error || "Eingebaute Stimmen gehen auf diesem Tablet nicht.") : null,
-          known.some((s) => s.bridge === false) ? h("div", { class: "notice" }, icon("speak"),
-            h("span", { class: "grow" }, h("b", {}, "Sprachbrücke ist aus"), h("small", {}, "AsTeRICS hört dann nur die Standard-Stimme von Android.")),
-            h("button", { type: "button", class: "btn sm", onclick: () => sendAll(ready(), "speech_bridge", "ON", "Sprachbrücke an") }, "Einschalten")) : null);
+          unavailable ? h("div", { class: "foot warn-t" }, unavailable.error || "Eingebaute Stimmen gehen auf diesem Tablet nicht.") : null);
 
-        // Samsung/Google languages, and old voice apps that are no longer needed
-        const oldApps = new Map();
-        tids.forEach((tid) => (g(tablets.get(tid) || {}, "state.tts.engines") || []).filter((e) => OLD_TTS_APPS.includes(e.package)).forEach((e) => oldApps.set(e.package, e)));
+        // Samsung/Google: more languages come from their own download screen on the tablet
+        const openVoiceData = () => (ready().length ? sendSigned(ready(), "voice_data", "", "", { engine: "" }, "Wird am Tablet geöffnet") : needNew());
         fill(ui.more,
           groupH("Samsung und Google"),
           h("div", { class: "group" },
             row(h("span", { class: "nav-ic" }, icon("download")),
               h("span", { class: "grow" }, h("span", { class: "row-title" }, "Weitere Sprachen dazu"), h("small", { class: "row-sub" }, "Öffnet am Tablet die Download-Seite von Samsung oder Google")),
-              h("button", { type: "button", class: "btn sm light", onclick: () => sendSigned(tids, "tts_voice_data", "", "", { package: "" }, "Wird am Tablet geöffnet") }, "Am Tablet öffnen")),
-            ...[...oldApps.values()].map((e) => row(h("span", { class: "nav-ic" }, icon("trash")),
-              h("span", { class: "grow" }, h("span", { class: "row-title" }, e.package === SHERPA_PKG ? "sherpa-App" : e.label || e.package),
-                h("small", { class: "row-sub" }, "Einzelne Stimmen-App, nicht mehr nötig")),
-              h("button", { type: "button", class: "btn sm ghost", onclick: () => { if (confirm(`Die App von ${where()} entfernen?`)) sendSigned(tids, "tts_uninstall", e.package, "", { package: e.package }, "Wird entfernt …"); } }, "Entfernen")))),
+              h("button", { type: "button", class: "btn sm light", onclick: openVoiceData }, "Am Tablet öffnen"))),
           h("div", { class: "foot" }, "Dort geladene Sprachen erscheinen hier und in AsTeRICS von selbst."));
       },
     };
